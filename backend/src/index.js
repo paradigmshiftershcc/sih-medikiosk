@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
+import intakeRoutes from './routes/intakeRoutes.js';
 
 // Load env vars
 dotenv.config();
@@ -21,12 +22,10 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'MediKiosk API is running!' });
 });
-app.get('/', (req, res) => {
-  res.send('MediKiosk API is running!');
-});
 
 // Mount Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/intake', intakeRoutes);
 
 const PORT = process.env.PORT || 5000;
 
