@@ -5,6 +5,7 @@ import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import intakeRoutes from './routes/intakeRoutes.js';
 import ocrRoutes from './routes/ocrRoutes.js';
+import summaryRoutes from './routes/summaryRoutes.js';
 
 // Load env vars
 dotenv.config();
@@ -29,6 +30,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/intake', intakeRoutes);
 app.use('/api/ocr', ocrRoutes);
+app.use('/api/summary', summaryRoutes);
 
 const PORT = process.env.PORT || 5000;
 

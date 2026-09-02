@@ -4,9 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import Login from './pages/Login.jsx';
 import PatientDashboard from './pages/PatientDashboard.jsx';
 import IntakeFlow from './pages/IntakeFlow.jsx';
-
-// Inline placeholders for now
-const DoctorView = () => <div className="p-8 text-2xl font-bold text-brand-700">Doctor Summary View</div>;
+import DoctorView from './pages/DoctorView.jsx';
 
 // Protected Route Wrapper
 const ProtectedRoute = ({ children }) => {
@@ -43,7 +41,17 @@ function App() {
                   </ProtectedRoute>
                 } 
               />
-              <Route path="/doctor" element={<DoctorView />} />
+              <Route 
+                path="/doctor/:caseId" 
+                element={
+                  <ProtectedRoute>
+                    <DoctorView />
+                  </ProtectedRoute>
+                } 
+              />
+              
+              {/* Fallback route to catch invalid URLs securely */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </main>
         </div>

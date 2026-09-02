@@ -59,6 +59,10 @@ const caseRecordSchema = new mongoose.Schema(
       ahara: String,
       vihara: String
     },
+    finalSummary: {
+      type: Object, // Store the structured JSON output from Gemini
+      default: null
+    },
     status: {
       type: String,
       enum: ['IN_PROGRESS', 'COMPLETED'],
