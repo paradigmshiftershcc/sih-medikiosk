@@ -48,6 +48,17 @@ const caseRecordSchema = new mongoose.Schema(
       notes: [String],
       unclearItems: [String]
     },
+    ayushMode: {
+      type: Boolean,
+      default: false
+    },
+    ayushData: {
+      prakriti: String,
+      agni: String,
+      koshtha: String,
+      ahara: String,
+      vihara: String
+    },
     status: {
       type: String,
       enum: ['IN_PROGRESS', 'COMPLETED'],

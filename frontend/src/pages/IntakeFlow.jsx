@@ -1,13 +1,16 @@
 import ChatInterface from '../components/intake/ChatInterface';
 import DocumentUpload from '../components/intake/DocumentUpload';
+import AyushQuestionnaire from '../components/intake/AyushQuestionnaire';
 import { ArrowLeft } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useState } from 'react';
 
 export default function IntakeFlow() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const isAyush = location.state?.ayushMode || false;
   
-  // Manage Wizard State: 1 = Chat, 2 = Document Upload, 3 = AYUSH (Next Phase)
+  // Manage Wizard State: 1 = Chat, 2 = Document Upload, 3 = AYUSH (Conditional)
   const [step, setStep] = useState(1);
   const [caseId, setCaseId] = useState(null);
 
@@ -17,8 +20,11 @@ export default function IntakeFlow() {
   };
 
   const handleDocumentComplete = () => {
-    // We will route to Phase 5 (AYUSH / Summary) here later.
-    navigate('/dashboard');
+    if (isAyush) {
+      setStep(3);
+    } else {
+      navigate('/dashboard'); // We will route to Final Summary here in Phase 6
+    }
   };
 
   return (
@@ -37,6 +43,7 @@ export default function IntakeFlow() {
           <p className="text-sm text-gray-500">
             {step === 1 && "Step 1: Clinical History"}
             {step === 2 && "Step 2: Upload Documents"}
+            {step === 3 && "Step 3: Ayurvedic Profiling"}
           </p>
         </div>
       </div>
@@ -47,6 +54,10 @@ export default function IntakeFlow() {
       
       {step === 2 && (
         <DocumentUpload caseId={caseId} onComplete={handleDocumentComplete} />
+      )}
+
+      {step === 3 && isAyush && (
+        <AyushQuestionnaire caseId={caseId} onComplete={() => navigate('/dashboard')} />
       )}
       
     </div>

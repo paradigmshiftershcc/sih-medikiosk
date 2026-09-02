@@ -2,11 +2,13 @@ import CaseRecord from '../models/CaseRecord.js';
 import { generateNextQuestion } from '../services/geminiService.js';
 
 export const processChatTurn = async (req, res) => {
+  console.log(`\n--- [Controller] Request received at /intake/chat ---`);
   try {
     const { caseId, message } = req.body;
-    const patientId = req.user.id; // From auth middleware (we'll implement the middleware shortly, for now we mock it if needed. Actually we attached it in login.)
+    console.log(`[Controller] Payload: { caseId: ${caseId || 'NEW'}, messageLength: ${message?.length} }`);
     
-    // If no caseId, create a new case record.
+    const patientId = req.user.id; 
+    
     let caseRecord;
     if (!caseId) {
       caseRecord = await CaseRecord.create({
@@ -19,13 +21,12 @@ export const processChatTurn = async (req, res) => {
       caseRecord.transcript.push({ role: 'user', content: message });
     }
 
-    // Get AI response based on the updated transcript
+    console.log(`[Controller] Handing over transcript to Gemini Service...`);
     const aiData = await generateNextQuestion(caseRecord.transcript);
+    console.log(`[Controller] Gemini Service returned data successfully.`);
     
-    // Update DB with AI's response and any red flags detected
     caseRecord.transcript.push({ role: 'model', content: aiData.response });
     
-    // Merge new red flags without duplicates
     if (aiData.redFlags && aiData.redFlags.length > 0) {
       const uniqueFlags = new Set([...caseRecord.redFlags, ...aiData.redFlags]);
       caseRecord.redFlags = Array.from(uniqueFlags);
@@ -37,6 +38,7 @@ export const processChatTurn = async (req, res) => {
 
     await caseRecord.save();
 
+    console.log(`[Controller] Sending 200 OK to client.`);
     res.status(200).json({
       caseId: caseRecord._id,
       response: aiData.response,
@@ -45,7 +47,28 @@ export const processChatTurn = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Chat Turn Error:", error);
+    console.error("[Controller] Caught Error:", error.message || error);
     res.status(500).json({ message: 'Error processing conversation.' });
+  }
+};
+
+export const saveAyushData = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const { ayushData } = req.body;
+
+    const caseRecord = await CaseRecord.findById(caseId);
+    if (!caseRecord) {
+      return res.status(404).json({ message: 'Case not found' });
+    }
+
+    caseRecord.ayushMode = true;
+    caseRecord.ayushData = ayushData;
+    await caseRecord.save();
+
+    res.status(200).json({ message: 'AYUSH data saved successfully', caseRecord });
+  } catch (error) {
+    console.error("[Controller] Save AYUSH Error:", error);
+    res.status(500).json({ message: 'Error saving AYUSH data.' });
   }
 };

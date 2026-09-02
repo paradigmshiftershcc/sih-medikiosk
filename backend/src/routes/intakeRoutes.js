@@ -1,5 +1,5 @@
 import express from 'express';
-import { processChatTurn } from '../controllers/intakeController.js';
+import { processChatTurn, saveAyushData } from '../controllers/intakeController.js';
 import jwt from 'jsonwebtoken';
 
 const router = express.Router();
@@ -22,5 +22,6 @@ const protect = (req, res, next) => {
 };
 
 router.post('/chat', protect, processChatTurn);
+router.put('/ayush/:caseId', protect, saveAyushData);
 
 export default router;
