@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import connectDB from './config/db.js';
 import authRoutes from './routes/authRoutes.js';
 import intakeRoutes from './routes/intakeRoutes.js';
+import ocrRoutes from './routes/ocrRoutes.js';
 
 // Load env vars
 dotenv.config();
@@ -15,8 +16,9 @@ const app = express();
 
 // Middleware
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// INCREASE LIMIT FOR BASE64 IMAGE PAYLOADS (~10MB)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Basic Health Check Route
 app.get('/api/health', (req, res) => {
@@ -26,6 +28,7 @@ app.get('/api/health', (req, res) => {
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/intake', intakeRoutes);
+app.use('/api/ocr', ocrRoutes);
 
 const PORT = process.env.PORT || 5000;
 
