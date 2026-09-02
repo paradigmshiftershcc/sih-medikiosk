@@ -1,9 +1,10 @@
-import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Activity } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 export default function Navbar() {
   const location = useLocation();
+  const { user } = useAuth();
   
   // We will hide the full navbar on the actual patient intake flow to reduce distraction,
   // but keep a minimal header. For now, we show it everywhere.
@@ -21,13 +22,19 @@ export default function Navbar() {
           <span className="font-bold text-xl tracking-tight">MediKiosk</span>
         </Link>
 
-        {/* Mock ABHA / Right side nav */}
-        {!isIntakeFlow && (
+        {/* Auth State / Mock ABHA / Right side nav */}
+        {!isIntakeFlow && user && (
           <div className="flex items-center gap-4">
-            {}
-            <div className="flex items-center gap-1.5 sm:gap-2 bg-brand-50 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border border-brand-200">
-              <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500"></div>
-              <span className="text-xs sm:text-sm font-medium text-brand-700">ABHA Linked</span>
+            {user.isAbhaLinked && (
+              <div className="flex items-center gap-1.5 sm:gap-2 bg-brand-50 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full border border-brand-200">
+                <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-green-500"></div>
+                <span className="text-xs sm:text-sm font-medium text-brand-700 truncate max-w-25 sm:max-w-none">
+                  ABHA Linked
+                </span>
+              </div>
+            )}
+            <div className="hidden sm:block text-sm font-medium text-gray-700">
+              {user.name}
             </div>
           </div>
         )}

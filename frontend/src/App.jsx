@@ -1,39 +1,68 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Navbar from './components/layout/Navbar.jsx';
-import Button from './components/ui/Button.jsx';
-import Card from './components/ui/Card.jsx';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import Navbar from "./components/layout/Navbar.jsx";
+import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
+import Login from "./pages/Login.jsx";
+import PatientDashboard from "./pages/PatientDashboard.jsx";
 
-const Login = () => (
-  <div className="max-w-md mx-auto mt-12">
-    <Card className="text-center space-y-6">
-      <h2 className="text-2xl font-bold text-brand-700">Welcome to MediKiosk</h2>
-      <p className="text-gray-600">Please authenticate to continue.</p>
-      <Button className="w-full" size="lg">Login via Mobile OTP</Button>
-    </Card>
+// Inline placeholders for now
+const IntakeFlow = () => (
+  <div className="p-8 text-2xl font-bold text-brand-700">
+    Intake Flow (Chat & OCR)
+  </div>
+);
+const DoctorView = () => (
+  <div className="p-8 text-2xl font-bold text-brand-700">
+    Doctor Summary View
   </div>
 );
 
-const PatientDashboard = () => <div className="p-8 text-2xl font-bold text-brand-700">Patient Dashboard</div>;
-const IntakeFlow = () => <div className="p-8 text-2xl font-bold text-brand-700">Intake Flow (Chat & OCR)</div>;
-const DoctorView = () => <div className="p-8 text-2xl font-bold text-brand-700">Doctor Summary View</div>;
+// Protected Route Wrapper
+const ProtectedRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading)
+    return <div className="p-8 text-center text-gray-500">Loading...</div>;
+  if (!user) return <Navigate to="/" replace />;
+  return children;
+};
 
 function App() {
   return (
-    <Router>
-      <div className="min-h-screen flex flex-col bg-brand-50">
-        <Navbar />
-        
-        {/* Main Content Area */}
-        <main className="flex-grow w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Routes>
-            <Route path="/" element={<Login />} />
-            <Route path="/dashboard" element={<PatientDashboard />} />
-            <Route path="/intake" element={<IntakeFlow />} />
-            <Route path="/doctor" element={<DoctorView />} />
-          </Routes>
-        </main>
-      </div>
-    </Router>
+    <AuthProvider>
+      <Router>
+        <div className="min-h-screen flex flex-col bg-brand-50">
+          <Navbar />
+
+          {/* Main Content Area */}
+          <main className="grow w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <Routes>
+              <Route path="/" element={<Login />} />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <PatientDashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/intake"
+                element={
+                  <ProtectedRoute>
+                    <IntakeFlow />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="/doctor" element={<DoctorView />} />
+            </Routes>
+          </main>
+        </div>
+      </Router>
+    </AuthProvider>
   );
 }
 

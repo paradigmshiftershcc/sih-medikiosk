@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import connectDB from './config/db.js';
+import authRoutes from './routes/authRoutes.js';
 
 // Load env vars
 dotenv.config();
@@ -20,10 +21,12 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', message: 'MediKiosk API is running!' });
 });
+app.get('/', (req, res) => {
+  res.send('MediKiosk API is running!');
+});
 
-// We will mount our routes here in later phases
-// import authRoutes from './routes/authRoutes.js';
-// app.use('/api/auth', authRoutes);
+// Mount Routes
+app.use('/api/auth', authRoutes);
 
 const PORT = process.env.PORT || 5000;
 
