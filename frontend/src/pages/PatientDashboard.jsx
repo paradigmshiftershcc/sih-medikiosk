@@ -1,22 +1,56 @@
-import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
-import Card from '../components/ui/Card';
-import { FileText, Clock, ChevronRight, Leaf } from 'lucide-react';
+import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import Card from "../components/ui/Card";
+import api from "../services/api";
+import {
+  AlertCircle,
+  ChevronRight,
+  Clock,
+  FileText,
+  Leaf,
+  Loader2,
+} from "lucide-react";
 
 export default function PatientDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [ayushMode, setAyushMode] = useState(false);
+  const [pastCases, setPastCases] = useState([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await api.get("/intake/history");
+        setPastCases(response.data);
+      } catch (error) {
+        console.error("Failed to fetch history:", error);
+        setHistoryError("Could not load past consultations.");
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    fetchHistory();
+  }, []);
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold text-brand-700">Welcome, {user?.name}</h1>
-          <p className="text-gray-600 mt-1">Manage your health records and start new consultations.</p>
+          <h1 className="text-3xl font-bold text-brand-700">
+            Welcome, {user?.name}
+          </h1>
+          <p className="text-gray-600 mt-1">
+            Manage your health records and start new consultations.
+          </p>
         </div>
-        <button onClick={logout} className="text-sm text-red-600 hover:underline font-medium">
+        <button
+          onClick={logout}
+          className="text-sm text-red-600 hover:underline font-medium"
+        >
           Logout
         </button>
       </div>
@@ -24,17 +58,23 @@ export default function PatientDashboard() {
       <Card className="border-l-4 border-l-brand-500">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h3 className="font-semibold text-lg text-gray-800">ABDM / ABHA Identity</h3>
-            <p className="text-gray-500 text-sm">Your health records are securely linked.</p>
+            <h3 className="font-semibold text-lg text-gray-800">
+              ABDM / ABHA Identity
+            </h3>
+            <p className="text-gray-500 text-sm">
+              Your health records are securely linked.
+            </p>
           </div>
           <div className="bg-brand-50 text-brand-700 px-4 py-2 rounded-lg font-mono font-medium border border-brand-100">
-            {user?.abhaId || 'Pending Generation'}
+            {user?.abhaId || "Pending Generation"}
           </div>
         </div>
       </Card>
 
-      <h2 className="text-xl font-semibold text-gray-800 mt-8 mb-4">Actions</h2>
-      
+      <h2 className="text-xl font-semibold text-gray-800 mt-8 mb-4">
+        New Consultation
+      </h2>
+
       {/* AYUSH Toggle */}
       <div className="mb-6 flex items-center justify-between bg-green-50 border border-green-200 p-4 rounded-2xl transition-all">
         <div className="flex items-center gap-3">
@@ -43,13 +83,15 @@ export default function PatientDashboard() {
           </div>
           <div>
             <h3 className="font-semibold text-green-900">AYUSH Consultation</h3>
-            <p className="text-green-700 text-sm hidden sm:block">Enable Ayurvedic profiling (Dashavidha Pariksha)</p>
+            <p className="text-green-700 text-sm hidden sm:block">
+              Enable Ayurvedic profiling (Dashavidha Pariksha)
+            </p>
           </div>
         </div>
         <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
-          <input 
-            type="checkbox" 
-            className="sr-only peer" 
+          <input
+            type="checkbox"
+            className="sr-only peer"
             checked={ayushMode}
             onChange={(e) => setAyushMode(e.target.checked)}
           />
@@ -57,39 +99,76 @@ export default function PatientDashboard() {
         </label>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        
-        {/* Primary Action */}
-        <button 
-          onClick={() => navigate('/intake', { state: { ayushMode } })}
-          className="text-left flex flex-col justify-between bg-brand-600 text-white p-6 rounded-2xl shadow-sm hover:bg-brand-700 transition-colors group h-40"
-        >
-          <div className="bg-white/20 w-fit p-3 rounded-xl">
-            <FileText className="w-6 h-6 text-white" />
+      <button
+        onClick={() => navigate("/intake", { state: { ayushMode } })}
+        className="w-full text-left flex flex-col justify-between bg-brand-600 text-white p-6 rounded-2xl shadow-sm hover:bg-brand-700 transition-colors group"
+      >
+        <div className="bg-white/20 w-fit p-3 rounded-xl">
+          <FileText className="w-6 h-6 text-white" />
+        </div>
+        <div className="flex items-center justify-between mt-4">
+          <div>
+            <h3 className="text-lg font-bold">Start Case Taking</h3>
+            <p className="text-brand-100 text-sm">
+              Create a summary for the doctor
+            </p>
           </div>
-          <div className="flex items-center justify-between mt-4">
-            <div>
-              <h3 className="text-lg font-bold">Start Case Taking</h3>
-              <p className="text-brand-100 text-sm">Create a summary for the doctor</p>
-            </div>
-            <ChevronRight className="w-6 h-6 transform group-hover:translate-x-1 transition-transform" />
-          </div>
-        </button>
+          <ChevronRight className="w-6 h-6 transform group-hover:translate-x-1 transition-transform" />
+        </div>
+      </button>
 
-        {/* Disabled secondary action (mocking past records) */}
-        <button 
-          disabled
-          className="text-left flex flex-col justify-between bg-white border border-gray-200 p-6 rounded-2xl opacity-60 cursor-not-allowed h-40"
+      <section className="mt-10" aria-labelledby="past-consultations-heading">
+        <h2
+          id="past-consultations-heading"
+          className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2"
         >
-          <div className="bg-gray-100 w-fit p-3 rounded-xl">
-            <Clock className="w-6 h-6 text-gray-500" />
+          <Clock className="w-5 h-5 text-gray-500" /> Past Consultations
+        </h2>
+
+        {isLoadingHistory ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-6 h-6 text-brand-500 animate-spin" />
           </div>
-          <div className="mt-4">
-            <h3 className="text-lg font-bold text-gray-800">Past Consultations</h3>
-            <p className="text-gray-500 text-sm">No past records found.</p>
+        ) : historyError ? (
+          <div className="bg-red-50 text-red-600 p-4 rounded-xl flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" /> {historyError}
           </div>
-        </button>
-      </div>
+        ) : pastCases.length === 0 ? (
+          <div className="bg-white border border-gray-100 p-8 rounded-2xl text-center text-gray-500">
+            No past consultations found.
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+            {pastCases.map((record) => (
+              <button
+                key={record._id}
+                onClick={() => navigate(`/doctor/${record._id}`)}
+                className="w-full text-left bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:border-brand-300 hover:shadow-md transition-all flex justify-between items-center group"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-500">
+                    {new Date(record.createdAt).toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </p>
+                  <h3 className="font-semibold text-gray-800 mt-1 truncate">
+                    {record.finalSummary?.chiefComplaint ||
+                      "Consultation Record"}
+                  </h3>
+                  {record.ayushMode && (
+                    <span className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                      <Leaf className="w-3 h-3" /> AYUSH
+                    </span>
+                  )}
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-brand-600 group-hover:translate-x-1 transition-transform shrink-0 ml-4" />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
