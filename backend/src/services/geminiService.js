@@ -1,6 +1,15 @@
 import { GoogleGenAI } from "@google/genai";
 
-const MODEL = "gemini-3.1-flash-lite";
+const PRIMARY_MODEL = "gemini-3.1-flash-lite";
+const FALLBACK_MODEL = "gemini-3.6-flash";
+const CHAT_TIMEOUT_MS = 3000; // Interactive timeout
+const MODEL_COOLDOWN_MS = 30000; // Cooldown period for unavailable models
+
+// In-memory model health tracking (process-level, not persisted)
+const modelHealth = {
+  [PRIMARY_MODEL]: { available: true, failureCount: 0, cooldownUntil: 0 },
+  [FALLBACK_MODEL]: { available: true, failureCount: 0, cooldownUntil: 0 },
+};
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -13,6 +22,32 @@ const isTransientError = (error) => {
     status === 504 ||
     /429|503|504|timeout|timed out|temporar/i.test(error?.message || "")
   );
+};
+
+const isModelInCooldown = (model) => {
+  const health = modelHealth[model];
+  if (!health) return false;
+  return Date.now() < health.cooldownUntil;
+};
+
+const markModelFailure = (model) => {
+  if (modelHealth[model]) {
+    modelHealth[model].failureCount += 1;
+    // After 2 failures, enter cooldown
+    if (modelHealth[model].failureCount >= 2) {
+      modelHealth[model].cooldownUntil = Date.now() + MODEL_COOLDOWN_MS;
+      console.warn(
+        `[Gemini API] Model ${model} entering cooldown due to repeated failures.`,
+      );
+    }
+  }
+};
+
+const resetModelHealth = (model) => {
+  if (modelHealth[model]) {
+    modelHealth[model].failureCount = 0;
+    modelHealth[model].cooldownUntil = 0;
+  }
 };
 
 const parseJsonResponse = (text) => {
@@ -148,11 +183,26 @@ const detectRedFlags = (transcript = []) => {
   );
 };
 
-export const generateNextQuestion = async (transcript) => {
+// Helper: Attempt API call with timeout
+const callGeminiWithTimeout = async (model, contents, config, timeoutMs) => {
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("REQUEST_TIMEOUT")), timeoutMs);
+  });
+
   const ai = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
   });
 
+  const apiCall = ai.models.generateContent({
+    model,
+    contents,
+    config,
+  });
+
+  return Promise.race([apiCall, timeoutPromise]);
+};
+
+export const generateNextQuestion = async (transcript) => {
   const formattedContents = transcript.map((message) => ({
     role: message.role === "model" ? "model" : "user",
     parts: [{ text: message.content }],
@@ -196,30 +246,49 @@ LANGUAGE RULES:
 Return ONLY the requested JSON structure.
 `;
 
-  let attemptsLeft = 2;
-  let delay = 1000;
+  const config = {
+    systemInstruction,
+    responseMimeType: "application/json",
+    responseSchema: CHAT_SCHEMA,
+    thinkingConfig: {
+      thinkingLevel: "low",
+    },
+  };
 
-  while (true) {
+  // Bounded fallback: try primary, then fallback if timeout
+  const modelsToTry = [
+    { model: PRIMARY_MODEL, timeout: CHAT_TIMEOUT_MS },
+    { model: FALLBACK_MODEL, timeout: CHAT_TIMEOUT_MS },
+  ];
+
+  for (const { model, timeout } of modelsToTry) {
+    // Skip if model is in cooldown
+    if (isModelInCooldown(model)) {
+      console.warn(
+        `[Gemini API] Model ${model} is in cooldown, skipping this round.`,
+      );
+      continue;
+    }
+
     try {
-      console.log(`[Gemini API] Generating clinical question with ${MODEL}.`);
+      console.log(
+        `[Gemini API] Attempting clinical question with ${model} (timeout: ${timeout}ms).`,
+      );
 
-      const response = await ai.models.generateContent({
-        model: MODEL,
-        contents: formattedContents,
-        config: {
-          systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: CHAT_SCHEMA,
-          thinkingConfig: {
-            thinkingLevel: "low",
-          },
-        },
-      });
+      const response = await callGeminiWithTimeout(
+        model,
+        formattedContents,
+        config,
+        timeout,
+      );
 
       const result = parseJsonResponse(response.text);
+      resetModelHealth(model);
 
       const deterministicFlags = detectRedFlags(transcript);
       const modelFlags = Array.isArray(result.redFlags) ? result.redFlags : [];
+
+      console.log(`[Gemini API] Success with ${model}.`);
 
       return {
         response: result.response,
@@ -228,28 +297,36 @@ Return ONLY the requested JSON structure.
         nextFocus: result.nextFocus || "general history",
       };
     } catch (error) {
-      console.error(
-        `[Gemini API] Chat error: ${error.status || "Unknown"} - ${error.message}`,
-      );
+      const isTimeout = error.message === "REQUEST_TIMEOUT";
 
-      if (isTransientError(error) && attemptsLeft > 0) {
-        console.warn(`[Gemini API] Transient error. Retrying in ${delay}ms...`);
-
-        await sleep(delay);
-        delay *= 2;
-        attemptsLeft -= 1;
-        continue;
+      if (isTimeout) {
+        console.warn(
+          `[Gemini API] ${model} exceeded timeout (${timeout}ms). Attempting fallback.`,
+        );
+      } else {
+        console.error(
+          `[Gemini API] ${model} error: ${error.status || "Unknown"} - ${error.message}`,
+        );
       }
 
-      return {
-        response:
-          "The service is temporarily busy. Please try again in a moment.",
-        redFlags: detectRedFlags(transcript),
-        isComplete: false,
-        nextFocus: "general history",
-      };
+      markModelFailure(model);
+
+      // Continue to next model in the list
+      continue;
     }
   }
+
+  // Both models exhausted or in cooldown
+  console.error(
+    "[Gemini API] All models unavailable or in cooldown. Returning graceful fallback.",
+  );
+
+  return {
+    response: "The service is temporarily busy. Please try again in a moment.",
+    redFlags: detectRedFlags(transcript),
+    isComplete: false,
+    nextFocus: "general history",
+  };
 };
 
 export const generateClinicalSummary = async (caseRecord) => {
@@ -322,10 +399,12 @@ ${JSON.stringify(caseRecord.redFlags || [])}
 
   while (true) {
     try {
-      console.log(`[Gemini API] Generating clinical summary with ${MODEL}.`);
+      console.log(
+        `[Gemini API] Generating clinical summary with ${PRIMARY_MODEL}.`,
+      );
 
       const response = await ai.models.generateContent({
-        model: MODEL,
+        model: PRIMARY_MODEL,
         contents: promptContent,
         config: {
           systemInstruction,
