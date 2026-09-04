@@ -2,8 +2,8 @@ import { GoogleGenAI } from "@google/genai";
 
 const PRIMARY_MODEL = "gemini-3.1-flash-lite";
 const FALLBACK_MODEL = "gemini-3.6-flash";
-const CHAT_TIMEOUT_MS = 3000; // Interactive timeout
-const MODEL_COOLDOWN_MS = 30000; // Cooldown period for unavailable models
+const CHAT_TIMEOUT_MS = 5000; // Interactive timeout
+const MODEL_COOLDOWN_MS = 50000; // Cooldown period for unavailable models
 
 // In-memory model health tracking (process-level, not persisted)
 const modelHealth = {

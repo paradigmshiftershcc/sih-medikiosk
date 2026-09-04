@@ -54,7 +54,7 @@ const caseRecordSchema = new mongoose.Schema(
     },
     ayushMode: {
       type: Boolean,
-      default: false,
+      default: true,
     },
     ayushData: {
       prakriti: String,

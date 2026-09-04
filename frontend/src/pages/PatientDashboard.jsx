@@ -15,7 +15,7 @@ import {
 export default function PatientDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [ayushMode, setAyushMode] = useState(false);
+  const [ayushMode, setAyushMode] = useState(true);
   const [pastCases, setPastCases] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [historyError, setHistoryError] = useState("");
