@@ -142,7 +142,7 @@ export default function PatientDashboard() {
             {pastCases.map((record) => (
               <button
                 key={record._id}
-                onClick={() => navigate(`/doctor/${record._id}`)}
+                onClick={() => navigate(`/consultation/${record._id}`)}
                 className="w-full text-left bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:border-brand-300 hover:shadow-md transition-all flex justify-between items-center group"
               >
                 <div className="min-w-0">
@@ -157,11 +157,20 @@ export default function PatientDashboard() {
                     {record.finalSummary?.chiefComplaint ||
                       "Consultation Record"}
                   </h3>
-                  {record.ayushMode && (
-                    <span className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
-                      <Leaf className="w-3 h-3" /> AYUSH
+                  <div className="flex items-center gap-2 mt-2 flex-wrap">
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full border ${record.status === "ASSIGNED" ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-gray-50 text-gray-700 border-gray-200"}`}
+                    >
+                      {record.status === "ASSIGNED"
+                        ? "Waiting in Queue"
+                        : "Completed"}
                     </span>
-                  )}
+                    {record.ayushMode && (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+                        <Leaf className="w-3 h-3" /> AYUSH
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-brand-600 group-hover:translate-x-1 transition-transform shrink-0 ml-4" />
               </button>

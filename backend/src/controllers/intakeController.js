@@ -1,5 +1,9 @@
 import CaseRecord from "../models/CaseRecord.js";
-import { generateNextQuestion } from "../services/geminiService.js";
+import Doctor from "../models/Doctor.js";
+import {
+  generateNextQuestion,
+  generateClinicalSummary,
+} from "../services/geminiService.js";
 import {
   speechToEnglishText,
   englishTextToSpeech,
@@ -17,11 +21,9 @@ export const processChatTurn = async (req, res) => {
       try {
         englishInputText = await speechToEnglishText(audioBase64, language);
       } catch (err) {
-        return res
-          .status(502)
-          .json({
-            message: "Language service temporarily unavailable. Please type.",
-          });
+        return res.status(502).json({
+          message: "Language service temporarily unavailable. Please type.",
+        });
       }
     } else if (audioBase64 && language === "en") {
       // In a full production env, we'd route English audio through an English ASR here.
@@ -117,12 +119,118 @@ export const saveAyushData = async (req, res) => {
 export const getPatientHistory = async (req, res) => {
   try {
     const cases = await CaseRecord.find({ patientId: req.user.id })
-      .select("createdAt status redFlags ayushMode finalSummary.chiefComplaint")
+      .select(
+        "createdAt status redFlags ayushMode finalSummary.chiefComplaint assignedDoctorId priority",
+      )
+      .populate("assignedDoctorId", "name specialty")
       .sort({ createdAt: -1 });
 
     res.status(200).json(cases);
   } catch (error) {
     console.error("History Fetch Error:", error);
     res.status(500).json({ message: "Error fetching patient history." });
+  }
+};
+
+export const completeCaseAndAssign = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+    const patientId = req.user.id;
+
+    const caseRecord = await CaseRecord.findById(caseId);
+
+    if (!caseRecord) {
+      return res.status(404).json({ message: "Case not found." });
+    }
+
+    if (caseRecord.patientId.toString() !== patientId) {
+      return res.status(403).json({ message: "Unauthorized access to case." });
+    }
+
+    // 1. Generate Summary NOW (before doctor sees it)
+    if (!caseRecord.finalSummary) {
+      try {
+        const summary = await generateClinicalSummary(caseRecord);
+        caseRecord.finalSummary = summary;
+      } catch (summaryError) {
+        console.error("Summary generation failed:", summaryError);
+        return res
+          .status(500)
+          .json({
+            message: "Failed to generate clinical summary. Please try again.",
+          });
+      }
+    }
+
+    // 2. Deterministic Recommendation Engine
+    let assignedSpecialty = "General Medicine";
+    let priority = "ROUTINE";
+    let assignmentReason = "Standard routing.";
+
+    if (caseRecord.ayushMode) {
+      assignedSpecialty = "Ayurveda";
+      assignmentReason = "Patient requested AYUSH consultation.";
+    } else if (caseRecord.redFlags && caseRecord.redFlags.length > 0) {
+      priority = "URGENT_REVIEW";
+      assignmentReason = "Critical red flags detected.";
+      // Route to Cardio or Gen Med based on flags (simplified rule)
+      if (caseRecord.redFlags.some((f) => f.toLowerCase().includes("chest"))) {
+        assignedSpecialty = "Cardiology";
+      }
+    } else if (caseRecord.finalSummary?.chiefComplaint) {
+      const cc = caseRecord.finalSummary.chiefComplaint.toLowerCase();
+      if (
+        cc.includes("bone") ||
+        cc.includes("joint") ||
+        cc.includes("fracture")
+      )
+        assignedSpecialty = "Orthopedics";
+      else if (
+        cc.includes("skin") ||
+        cc.includes("rash") ||
+        cc.includes("dermat")
+      )
+        assignedSpecialty = "Dermatology";
+    }
+
+    // 3. Find Doctor in DB - first try the specialty, then fallback to General Medicine, then any doctor
+    let doctor = await Doctor.findOne({ specialty: assignedSpecialty });
+
+    if (!doctor) {
+      doctor = await Doctor.findOne({ specialty: "General Medicine" });
+    }
+
+    if (!doctor) {
+      doctor = await Doctor.findOne();
+    }
+
+    if (!doctor) {
+      return res
+        .status(500)
+        .json({
+          message:
+            "No doctors available for assignment. Please try again later.",
+        });
+    }
+
+    // 4. Assign the case
+    caseRecord.assignedDoctorId = doctor._id;
+    caseRecord.status = "ASSIGNED";
+    caseRecord.priority = priority;
+    caseRecord.assignmentReason = assignmentReason;
+    caseRecord.assignedAt = new Date();
+    await caseRecord.save();
+
+    res.status(200).json({
+      message: "Case completed and assigned.",
+      caseId: caseRecord._id,
+      assignedDoctor: doctor.name,
+      specialty: doctor.specialty,
+      priority,
+      status: "ASSIGNED",
+    });
+  } catch (error) {
+    console.error("Completion Error:", error);
+    res.status(500).json({ message: "Error finalizing case." });
   }
 };

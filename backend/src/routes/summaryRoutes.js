@@ -1,26 +1,10 @@
-import express from 'express';
-import { getCaseSummary } from '../controllers/summaryController.js';
-import jwt from 'jsonwebtoken';
+import express from "express";
+import { getCaseSummary } from "../controllers/summaryController.js";
+import { protect, authorize } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Auth Middleware (Reused logic for MVP)
-const protect = (req, res, next) => {
-  let token;
-  if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-    try {
-      token = req.headers.authorization.split(' ')[1];
-      req.user = jwt.verify(token, process.env.JWT_SECRET);
-      next();
-    } catch (error) {
-      res.status(401).json({ message: 'Not authorized' });
-    }
-  } else {
-    res.status(401).json({ message: 'Not authorized' });
-  }
-};
-
-// Route to fetch (and generate if missing) the case summary
-router.get('/:caseId', protect, getCaseSummary);
+// Only doctors can fetch the detailed summary (Patients see limited history on dashboard)
+router.get("/:caseId", protect, authorize("doctor"), getCaseSummary);
 
 export default router;

@@ -1,22 +1,24 @@
-import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
-import ChatInterface from '../components/intake/ChatInterface.jsx';
-import DocumentUpload from '../components/intake/DocumentUpload.jsx';
-import AyushQuestionnaire from '../components/intake/AyushQuestionnaire.jsx';
+import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+import ChatInterface from "../components/intake/ChatInterface.jsx";
+import DocumentUpload from "../components/intake/DocumentUpload.jsx";
+import AyushQuestionnaire from "../components/intake/AyushQuestionnaire.jsx";
+import api from "../services/api.js";
 
 export default function IntakeFlow() {
   const navigate = useNavigate();
   const location = useLocation();
-  
+
   // Retrieve the AYUSH mode preference passed from the Dashboard
   const isAyush = location.state?.ayushMode || false;
-  
+
   // Manage Wizard State: 1 = Chat, 2 = Document Upload, 3 = AYUSH (Conditional)
   const [step, setStep] = useState(1);
   const [caseId, setCaseId] = useState(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [finalizationError, setFinalizationError] = useState("");
 
-  /* STREAMING_CHUNK: Handling progression between intake steps */
   const handleChatComplete = (finalCaseId) => {
     if (!finalCaseId) {
       console.error("Missing caseId from chat completion!");
@@ -26,28 +28,53 @@ export default function IntakeFlow() {
     setStep(2);
   };
 
+  const completeAndExit = async () => {
+    setIsFinalizing(true);
+    setFinalizationError("");
+    try {
+      await api.post(`/intake/${caseId}/complete`);
+      navigate("/consultation/" + caseId, { state: { caseCompleted: true } });
+    } catch (error) {
+      console.error("Failed to finalize case", error);
+      setFinalizationError(
+        error.response?.data?.message ||
+          "Failed to complete case. Please try again.",
+      );
+      setIsFinalizing(false);
+    }
+  };
+
   const handleDocumentComplete = () => {
     if (isAyush) {
       setStep(3);
     } else {
-      // If AYUSH is not enabled, we are done. Route straight to the Doctor View.
-      navigate(`/doctor/${caseId}`); 
+      completeAndExit();
     }
   };
 
   const handleAyushComplete = () => {
-    // If AYUSH is enabled, this is the final step. Route to the Doctor View.
-    navigate(`/doctor/${caseId}`);
+    completeAndExit();
   };
 
-  /* STREAMING_CHUNK: Rendering the Intake Flow layout */
+  if (isFinalizing) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
+        <div className="w-12 h-12 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
+        <h2 className="text-xl font-bold text-gray-800">Assigning Doctor...</h2>
+        <p className="text-gray-500">Preparing your clinical file.</p>
+        {finalizationError && (
+          <div className="text-red-600 text-sm mt-4">{finalizationError}</div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      
       {/* Top Navigation / Progress Indicator */}
       <div className="flex items-center gap-4 mb-8">
-        <button 
-          onClick={() => navigate('/dashboard')}
+        <button
+          onClick={() => navigate("/dashboard")}
           className="p-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
           title="Return to Dashboard"
         >
@@ -64,10 +91,8 @@ export default function IntakeFlow() {
       </div>
 
       {/* Render Current Step */}
-      {step === 1 && (
-        <ChatInterface onComplete={handleChatComplete} />
-      )}
-      
+      {step === 1 && <ChatInterface onComplete={handleChatComplete} />}
+
       {step === 2 && (
         <DocumentUpload caseId={caseId} onComplete={handleDocumentComplete} />
       )}
@@ -75,7 +100,6 @@ export default function IntakeFlow() {
       {step === 3 && isAyush && (
         <AyushQuestionnaire caseId={caseId} onComplete={handleAyushComplete} />
       )}
-      
     </div>
   );
 }
