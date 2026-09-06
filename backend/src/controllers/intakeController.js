@@ -46,6 +46,11 @@ export const processChatTurn = async (req, res) => {
       caseRecord = await CaseRecord.findById(caseId);
       if (!caseRecord)
         return res.status(404).json({ message: "Case not found" });
+      if (caseRecord.patientId.toString() !== patientId) {
+        return res
+          .status(403)
+          .json({ message: "Unauthorized access to case." });
+      }
       caseRecord.transcript.push({ role: "user", content: englishInputText });
     }
 
@@ -90,7 +95,7 @@ export const processChatTurn = async (req, res) => {
       isComplete: aiData.isComplete,
     });
   } catch (error) {
-    console.error("Chat Turn Error:", error);
+    console.error("Chat Turn Error:", error?.message || error);
     res.status(500).json({ message: "Error processing conversation." });
   }
 };
@@ -102,6 +107,9 @@ export const saveAyushData = async (req, res) => {
 
     const caseRecord = await CaseRecord.findById(caseId);
     if (!caseRecord) return res.status(404).json({ message: "Case not found" });
+    if (caseRecord.patientId.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Unauthorized access to case." });
+    }
 
     caseRecord.ayushMode = true;
     caseRecord.ayushData = ayushData;
@@ -111,7 +119,7 @@ export const saveAyushData = async (req, res) => {
       .status(200)
       .json({ message: "AYUSH data saved successfully", caseRecord });
   } catch (error) {
-    console.error("Save AYUSH Error:", error);
+    console.error("Save AYUSH Error:", error?.message || error);
     res.status(500).json({ message: "Error saving AYUSH data." });
   }
 };
@@ -127,7 +135,7 @@ export const getPatientHistory = async (req, res) => {
 
     res.status(200).json(cases);
   } catch (error) {
-    console.error("History Fetch Error:", error);
+    console.error("History Fetch Error:", error?.message || error);
     res.status(500).json({ message: "Error fetching patient history." });
   }
 };
@@ -153,7 +161,10 @@ export const completeCaseAndAssign = async (req, res) => {
         const summary = await generateClinicalSummary(caseRecord);
         caseRecord.finalSummary = summary;
       } catch (summaryError) {
-        console.error("Summary generation failed:", summaryError);
+        console.error(
+          "Summary generation failed:",
+          summaryError?.message || summaryError,
+        );
         return res
           .status(500)
           .json({
@@ -230,7 +241,7 @@ export const completeCaseAndAssign = async (req, res) => {
       status: "ASSIGNED",
     });
   } catch (error) {
-    console.error("Completion Error:", error);
+    console.error("Completion Error:", error?.message || error);
     res.status(500).json({ message: "Error finalizing case." });
   }
 };

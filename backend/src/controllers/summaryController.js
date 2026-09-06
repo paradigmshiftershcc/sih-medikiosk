@@ -15,11 +15,9 @@ export const getCaseSummary = async (req, res) => {
       return res.status(404).json({ message: "Case not found" });
     }
 
-    // Verify doctor is assigned to this case
-    if (
-      caseRecord.assignedDoctorId &&
-      caseRecord.assignedDoctorId.toString() !== req.user.id
-    ) {
+    // Verify doctor is assigned to this case.
+    // An unassigned or differently-assigned case is not visible to this doctor.
+    if (caseRecord.assignedDoctorId?.toString() !== req.user.id) {
       return res
         .status(403)
         .json({ message: "You are not assigned to this case." });
@@ -48,7 +46,10 @@ export const getCaseSummary = async (req, res) => {
       assignmentReason: caseRecord.assignmentReason,
     });
   } catch (error) {
-    console.error("[Summary Controller] Error generating summary:", error);
+    console.error(
+      "[Summary Controller] Summary generation failed:",
+      error?.message || error,
+    );
     res.status(500).json({ message: "Failed to generate clinical summary." });
   }
 };

@@ -1,0 +1,31 @@
+# Render Blueprint for the MediKiosk backend.
+# This file defines NON-secret service configuration only.
+# All secret values must be added in the Render dashboard (see "Secret
+# environment variables" notes in README). Never commit real values here.
+services:
+  - type: web
+    name: medikiosk-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/health
+    numInstances: 1
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Secrets - set these in the Render dashboard (sync: false means no
+      # value is stored in the repo):
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: BHASHINI_API_KEY
+        sync: false
+      - key: BHASHINI_USER_ID
+        sync: false
+      - key: BHASHINI_PIPELINE_ID
+        sync: false

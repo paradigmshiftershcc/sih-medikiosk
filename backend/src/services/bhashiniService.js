@@ -48,7 +48,7 @@ export const speechToEnglishText = async (base64Audio, sourceLang = 'hi') => {
     return translationOutput.output[0].target;
 
   } catch (error) {
-    console.error('[Bhashini ASR Error]', error.response?.data || error.message);
+    console.error('[Bhashini ASR Error]', error?.message || error);
     throw new Error('BHASHINI_ASR_FAILED');
   }
 };
@@ -87,7 +87,7 @@ export const englishTextToSpeech = async (englishText, targetLang = 'hi') => {
     };
 
   } catch (error) {
-    console.error('[Bhashini TTS Error]', error.response?.data || error.message);
+    console.error('[Bhashini TTS Error]', error?.message || error);
     throw new Error('BHASHINI_TTS_FAILED');
   }
 };

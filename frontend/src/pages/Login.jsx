@@ -114,6 +114,10 @@ export default function Login() {
             >
               Change Phone Number
             </button>
+            <p className="text-xs text-gray-400">
+              Demo environment: the mock OTP <code>123456</code> is accepted.
+              No real OTP is sent.
+            </p>
           </form>
         )}
       </Card>
