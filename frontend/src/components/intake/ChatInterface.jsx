@@ -19,44 +19,72 @@ export default function ChatInterface({ onComplete }) {
   
   const chatEndRef = useRef(null);
 
-  const { isListening, startListening, stopListening, playAudioBase64 } = useSpeech({
-    onAudioReady: (base64) => {
-      // Once mic stops, automatically send the audio blob to the backend
-      handleSendMessage(null, base64);
+  const { isListening, voiceStatus, voiceError, setVoiceStatus, setVoiceError, clearVoiceError, toggleRecording, playAudioBase64 } = useSpeech({
+    onAudioReady: (base64, mimeType) => {
+      // Transcribe only: the text goes into the input for patient review.
+      // Nothing is submitted to the clinical chat until Send is pressed.
+      transcribeVoiceInput(base64, mimeType);
     },
     onError: (err) => {
       setMessages(prev => [...prev, { role: 'model', content: err }]);
     }
   });
 
+  // Voice transcription leg: audio -> editable text. No message bubble,
+  // no database write, no clinical call. The input is left unchanged on
+  // failure so the patient can keep typing.
+  const transcribeVoiceInput = async (audioBase64, mimeType) => {
+    setVoiceStatus('transcribing');
+    clearVoiceError();
+    try {
+      const { data } = await api.post('/intake/transcribe', {
+        audioBase64,
+        mimeType,
+        language
+      }, {
+        // Transcription-only leg: bounded wait, then text fallback.
+        timeout: 45000
+      });
+      if (data?.text) {
+        setInputText(data.text);
+      } else {
+        throw new Error('EMPTY_TRANSCRIPTION');
+      }
+    } catch (error) {
+      setVoiceError(
+        error.response?.data?.message ||
+        'Voice transcription is temporarily unavailable. Please type your answer instead.'
+      );
+    } finally {
+      setVoiceStatus('idle');
+    }
+  };
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSendMessage = async (textOverride = null, audioBase64 = null) => {
+  // Single path that submits a clinical chat turn: typed text, or
+  // voice-transcribed text the patient has reviewed and chosen to send.
+  const handleSendMessage = async (textOverride = null) => {
     const textToSend = textOverride || inputText.trim();
-    
-    // Require either text or audio to proceed
-    if (!textToSend && !audioBase64) return;
+
+    // Require text to proceed
+    if (!textToSend) return;
 
     // Display user message in UI
-    if (textToSend) {
-      setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
-      setInputText('');
-    } else if (audioBase64) {
-      setMessages(prev => [...prev, { role: 'user', content: '🎤 (Voice Message)' }]);
-    }
+    setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
+    setInputText('');
 
     setIsLoading(true);
 
     try {
       const response = await api.post('/intake/chat', {
         caseId,
-        message: textToSend || "(Voice Input)",
-        audioBase64,
+        message: textToSend,
         language
       }, {
-        timeout: 20000 // Extended slightly for Bhashini pipeline latency
+        timeout: 20000
       });
 
       const { response: aiText, audioBase64: aiAudio, redFlags: currentFlags, caseId: newCaseId, isComplete } = response.data;
@@ -73,11 +101,8 @@ export default function ChatInterface({ onComplete }) {
       }
 
     } catch (error) {
-      console.error("Chat error:", error);
       let errorMsg = "I'm sorry, I encountered a network error. Could you repeat that?";
-      if (error.response?.status === 502) {
-         errorMsg = error.response.data.message; // Bhashini unavailable fallback message
-      } else if (error.code === 'ECONNABORTED') {
+      if (error.code === 'ECONNABORTED') {
         errorMsg = "The service is temporarily busy. Please try again in a moment.";
       }
       setMessages(prev => [...prev, { role: 'model', content: errorMsg }]);
@@ -102,6 +127,10 @@ export default function ChatInterface({ onComplete }) {
             >
               <option value="en">English</option>
               <option value="hi">हिंदी (Hindi)</option>
+              <option value="mr">मराठी (Marathi)</option>
+              <option value="gu">ગુજરાતી (Gujarati)</option>
+              <option value="bn">বাংলা (Bengali)</option>
+              <option value="auto">Auto-detect</option>
             </select>
           </div>
         </div>
@@ -123,6 +152,15 @@ export default function ChatInterface({ onComplete }) {
         </div>
       )}
 
+      {voiceError && (
+        <div className="bg-orange-50 px-4 py-2 flex items-center gap-2 border-b border-orange-100">
+          <AlertTriangle className="w-5 h-5 text-orange-500" />
+          <p className="text-sm text-orange-700 font-medium">
+            {voiceError}
+          </p>
+        </div>
+      )}
+
       {/* Messages Window */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, index) => (
@@ -139,7 +177,7 @@ export default function ChatInterface({ onComplete }) {
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 text-gray-500 rounded-2xl rounded-tl-none px-5 py-3 flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> Thinking...
+              <Loader2 className="w-4 h-4 animate-spin" /> {voiceStatus === 'transcribing' ? 'Transcribing...' : 'Thinking...'}
             </div>
           </div>
         )}
@@ -150,19 +188,16 @@ export default function ChatInterface({ onComplete }) {
       <div className="p-3 sm:p-4 bg-white border-t border-brand-100 flex flex-col gap-3">
         <div className="flex items-center gap-2 sm:gap-3 max-w-3xl mx-auto w-full">
           
-          {/* Push-to-Talk Mic */}
+          {/* Toggle Mic: first click starts recording, second click stops */}
           <button
-            onMouseDown={startListening}
-            onMouseUp={stopListening}
-            onTouchStart={(e) => { e.preventDefault(); startListening(); }}
-            onTouchEnd={(e) => { e.preventDefault(); stopListening(); }}
-            disabled={isLoading}
+            onClick={toggleRecording}
+            disabled={isLoading || voiceStatus === 'transcribing'}
             className={`p-3 sm:p-4 rounded-full flex-shrink-0 transition-all ${
               isListening 
                 ? 'bg-red-100 text-red-600 animate-pulse shadow-inner' 
                 : 'bg-brand-100 text-brand-600 hover:bg-brand-200 shadow-sm'
             }`}
-            title="Hold to speak"
+            title={isListening ? "Stop recording" : "Start recording"}
           >
             <Mic className="w-6 h-6 sm:w-7 sm:h-7" />
           </button>
@@ -172,8 +207,8 @@ export default function ChatInterface({ onComplete }) {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder={isListening ? "Listening... Release to send" : "Type your answer..."}
-            disabled={isListening}
+            placeholder={isListening ? "Recording... Tap mic to stop" : voiceStatus === 'transcribing' ? "Transcribing..." : "Type your answer..."}
+            disabled={isListening || voiceStatus === 'transcribing'}
             className="flex-1 min-w-0 py-3 px-3 sm:px-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-gray-50 text-base sm:text-lg"
           />
           

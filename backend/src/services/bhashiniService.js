@@ -13,9 +13,42 @@ const getHeaders = () => {
   };
 };
 
+// Placeholder values must never count as configured credentials.
+const PLACEHOLDER_VALUES = new Set([
+  "...",
+  "xxx",
+  "test",
+  "placeholder",
+  "changeme",
+  "todo",
+  "none",
+  "null",
+]);
+
+const looksConfigured = (value) => {
+  const trimmed = String(value || "").trim();
+  if (trimmed.length < 4) return false;
+  return !PLACEHOLDER_VALUES.has(trimmed.toLowerCase());
+};
+
 // Check if Bhashini is configured
 const isConfigured = () => {
-  return process.env.BHASHINI_API_KEY && process.env.BHASHINI_PIPELINE_ID;
+  return (
+    looksConfigured(process.env.BHASHINI_API_KEY) &&
+    looksConfigured(process.env.BHASHINI_PIPELINE_ID)
+  );
+};
+
+// Public availability check for the provider-agnostic transcription layer.
+// Bhashini onboarding is still pending, so it is strictly opt-in: it is only
+// attempted when BHASHINI_ENABLED=true AND real credentials are present.
+// Otherwise the voice layer skips Bhashini completely (no 401 attempts)
+// and uses Gemini Transcribe directly.
+export const isBhashiniAvailable = () => {
+  if (String(process.env.BHASHINI_ENABLED || "").toLowerCase() !== "true") {
+    return false;
+  }
+  return Boolean(isConfigured());
 };
 
 export const speechToEnglishText = async (base64Audio, sourceLang = 'hi') => {

@@ -4,31 +4,33 @@ import {
   generateNextQuestion,
   generateClinicalSummary,
 } from "../services/geminiService.js";
-import {
-  speechToEnglishText,
-  englishTextToSpeech,
-} from "../services/bhashiniService.js";
+import { englishTextToSpeech } from "../services/bhashiniService.js";
+import { transcribeAudio } from "../services/transcriptionService.js";
 
 export const processChatTurn = async (req, res) => {
   try {
-    // We now accept an optional audioBase64 string and language preference
-    const { caseId, message, audioBase64, language = "en" } = req.body;
+    // Voice input arrives as server-transcribed text via the provider-agnostic
+    // transcription layer (Bhashini primary, Gemini Transcribe fallback).
+    // From here on the clinical pipeline treats it exactly like typed text.
+    const { caseId, message, audioBase64, mimeType, language = "en" } = req.body;
     const patientId = req.user.id;
 
     let englishInputText = message;
 
-    if (audioBase64 && language !== "en") {
+    if (audioBase64) {
       try {
-        englishInputText = await speechToEnglishText(audioBase64, language);
+        const result = await transcribeAudio({
+          audioBase64,
+          mimeType,
+          language,
+        });
+        englishInputText = result.text;
       } catch (err) {
         return res.status(502).json({
-          message: "Language service temporarily unavailable. Please type.",
+          message:
+            "Voice transcription is temporarily unavailable. Please type your answer instead.",
         });
       }
-    } else if (audioBase64 && language === "en") {
-      // In a full production env, we'd route English audio through an English ASR here.
-      // For this step, we assume the frontend fallback handled English STT via Web Speech.
-      englishInputText = message;
     }
 
     if (!englishInputText) {
@@ -97,6 +99,40 @@ export const processChatTurn = async (req, res) => {
   } catch (error) {
     console.error("Chat Turn Error:", error?.message || error);
     res.status(500).json({ message: "Error processing conversation." });
+  }
+};
+
+export const transcribeVoice = async (req, res) => {
+  try {
+    // Transcription-only: converts voice to text for patient review.
+    // Creates no case, writes nothing to MongoDB, and never touches the
+    // clinical pipeline. The frontend places the text in the chat input;
+    // only an explicit Send submits a clinical chat turn.
+    const { audioBase64, mimeType, language = "en" } = req.body;
+    if (!audioBase64) {
+      return res.status(400).json({ message: "No audio provided." });
+    }
+    try {
+      const result = await transcribeAudio({
+        audioBase64,
+        mimeType,
+        language,
+      });
+      return res
+        .status(200)
+        .json({ text: result.text, language: result.language });
+    } catch (err) {
+      return res.status(503).json({
+        message:
+          "Voice transcription is temporarily unavailable. Please type your answer instead.",
+      });
+    }
+  } catch (error) {
+    console.error("Transcription Error:", error?.message || error);
+    return res.status(503).json({
+      message:
+        "Voice transcription is temporarily unavailable. Please type your answer instead.",
+    });
   }
 };
 
