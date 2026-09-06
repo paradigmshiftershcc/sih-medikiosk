@@ -10,7 +10,7 @@ import { transcribeAudio } from "../services/transcriptionService.js";
 export const processChatTurn = async (req, res) => {
   try {
     // Voice input arrives as server-transcribed text via the provider-agnostic
-    // transcription layer (Bhashini primary, Gemini Transcribe fallback).
+    // transcription layer (Bhashini primary, Sarvam fallback).
     // From here on the clinical pipeline treats it exactly like typed text.
     const { caseId, message, audioBase64, mimeType, language = "en" } = req.body;
     const patientId = req.user.id;

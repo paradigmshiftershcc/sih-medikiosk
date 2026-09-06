@@ -43,7 +43,7 @@ const isConfigured = () => {
 // Bhashini onboarding is still pending, so it is strictly opt-in: it is only
 // attempted when BHASHINI_ENABLED=true AND real credentials are present.
 // Otherwise the voice layer skips Bhashini completely (no 401 attempts)
-// and uses Gemini Transcribe directly.
+// and uses the Sarvam fallback directly.
 export const isBhashiniAvailable = () => {
   if (String(process.env.BHASHINI_ENABLED || "").toLowerCase() !== "true") {
     return false;

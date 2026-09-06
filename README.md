@@ -85,6 +85,7 @@ Two supported options:
 | `BHASHINI_API_KEY` | Optional until Bhashini approval |
 | `BHASHINI_USER_ID` | Optional until Bhashini approval |
 | `BHASHINI_PIPELINE_ID` | Optional until Bhashini approval |
+| `SARVAM_API_KEY` | Sarvam key for the Saaras v3 voice-transcription fallback |
 
 Health check details: `/api/health` returns `{ status: "ok"|"degraded", database: "connected"|"disconnected" }`. It never exposes the DB URI, credentials, or internal paths. The server does not accept traffic until the DB connects, so Render won't mark it ready while it cannot operate.
 

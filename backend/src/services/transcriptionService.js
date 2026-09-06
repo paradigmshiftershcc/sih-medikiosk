@@ -2,15 +2,16 @@ import {
   speechToEnglishText,
   isBhashiniAvailable,
 } from "./bhashiniService.js";
-import { transcribeWithGemini } from "./geminiTranscribeService.js";
+import { transcribeWithSarvam } from "./sarvamTranscribeService.js";
 
 // Provider-agnostic voice layer.
-// Bhashini is the intended PRIMARY Indian-language provider; Gemini 3.5
-// Transcribe is the SECONDARY/FALLBACK. The clinical chat pipeline only ever
+// Bhashini is the intended PRIMARY Indian-language provider; Sarvam Saaras
+// v3 is the SECONDARY/FALLBACK. The clinical chat pipeline only ever
 // sees the stable shape { text, language, provider } — never raw audio and
 // never provider-specific response structures.
 
-// Frontend language codes mapped to BCP-47 hints for Gemini Transcribe.
+// Frontend language codes mapped to BCP-47 hints for the transcription
+// fallback (Sarvam accepts the same BCP-47 codes).
 // Unknown/"auto" intentionally maps to undefined => automatic detection.
 export const LANGUAGE_TO_BCP47 = {
   en: "en-IN",
@@ -20,7 +21,9 @@ export const LANGUAGE_TO_BCP47 = {
   bn: "bn-IN",
 };
 
-// Audio containers Gemini Transcribe accepts for short voice clips.
+// Audio containers the Sarvam fallback accepts for short voice clips
+// (per https://docs.sarvam.ai/api-reference/speech-to-text/transcribe,
+// which explicitly lists WebM alongside WAV/MP3/AAC/FLAC/OGG/MP4).
 const ALLOWED_AUDIO_MIME_TYPES = new Set([
   "audio/webm",
   "audio/ogg",
@@ -84,6 +87,17 @@ const MIME_TO_CONTAINER = {
   "audio/aac": "mp4",
 };
 
+// Browsers may append codec parameters to the recorded MIME type: Chrome
+// reports MediaRecorder.mimeType as "audio/webm;codecs=opus" while Firefox
+// yields a clean "audio/webm" for the same container. Compare container
+// types only. The magic-byte sniff below remains the authority on the
+// actual bytes, and the normalized type is what Sarvam receives.
+const normalizeAudioMime = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .split(";")[0]
+    .trim();
+
 // Short Bhashini source-language codes for the ASR leg.
 const toBhashiniSourceLang = (language) => {
   if (["en", "hi", "mr", "gu", "bn"].includes(language)) return language;
@@ -100,10 +114,10 @@ export const transcribeAudio = async ({ audioBase64, mimeType, language }) => {
   let cleanBase64 = audioBase64;
   const prefixMatch = audioBase64.match(/^data:([^;]+);base64,/i);
   if (prefixMatch) {
-    const prefixMime = prefixMatch[1].toLowerCase();
+    const prefixMime = normalizeAudioMime(prefixMatch[1]);
     if (
       !ALLOWED_AUDIO_MIME_TYPES.has(prefixMime) ||
-      (mimeType && prefixMime !== String(mimeType).toLowerCase())
+      (mimeType && prefixMime !== normalizeAudioMime(mimeType))
     ) {
       throw new Error("INVALID_VOICE_PAYLOAD");
     }
@@ -111,7 +125,7 @@ export const transcribeAudio = async ({ audioBase64, mimeType, language }) => {
     cleanBase64 = audioBase64.slice(prefixMatch[0].length);
   }
 
-  const normalizedMime = String(mimeType || "").toLowerCase();
+  const normalizedMime = normalizeAudioMime(mimeType);
   if (!ALLOWED_AUDIO_MIME_TYPES.has(normalizedMime)) {
     throw new Error("INVALID_VOICE_PAYLOAD");
   }
@@ -150,19 +164,19 @@ export const transcribeAudio = async ({ audioBase64, mimeType, language }) => {
       );
       return { text, language: languageCode || "auto", provider: "bhashini" };
     } catch (error) {
-      // Single fallback attempt to Gemini Transcribe on 401/403/5xx/network
+      // Single fallback attempt to Sarvam on 401/403/5xx/network
       // failure. Never logs credentials, headers, or response bodies.
       console.error(
-        "[Transcription] Bhashini unavailable; falling back to Gemini Transcribe",
+        "[Transcription] Bhashini unavailable; falling back to Sarvam",
       );
     }
   } else {
-    console.log("[Transcription] Bhashini disabled; using Gemini Transcribe");
+    console.log("[Transcription] Bhashini disabled; using Sarvam");
   }
 
-  // SECONDARY/FALLBACK: Gemini 3.5 Transcribe (also the direct path while
+  // SECONDARY/FALLBACK: Sarvam Saaras v3 (also the direct path while
   // Bhashini credentials are pending).
-  return transcribeWithGemini({
+  return transcribeWithSarvam({
     audioBase64: cleanBase64,
     mimeType: normalizedMime,
     languageCode,
