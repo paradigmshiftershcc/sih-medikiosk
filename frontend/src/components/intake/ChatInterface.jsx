@@ -127,10 +127,8 @@ export default function ChatInterface({ onComplete }) {
             >
               <option value="en">English</option>
               <option value="hi">हिंदी (Hindi)</option>
-              <option value="mr">मराठी (Marathi)</option>
-              <option value="gu">ગુજરાતી (Gujarati)</option>
-              <option value="bn">বাংলা (Bengali)</option>
-              <option value="auto">Auto-detect</option>
+              {/* Additional languages appear only after their Bhashini
+                  pipelines are verified end-to-end. */}
             </select>
           </div>
         </div>

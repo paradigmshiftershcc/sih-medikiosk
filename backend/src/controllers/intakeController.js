@@ -42,6 +42,7 @@ export const processChatTurn = async (req, res) => {
     if (!caseId) {
       caseRecord = await CaseRecord.create({
         patientId,
+        language: typeof language === "string" ? language : "en",
         transcript: [{ role: "user", content: englishInputText }],
       });
     } else {

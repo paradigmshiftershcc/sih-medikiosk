@@ -9,6 +9,10 @@ const caseRecordSchema = new mongoose.Schema(
       ref: "Patient",
       required: true,
     },
+    language: {
+      type: String,
+      default: "en", // ISO-639 consultation language (e.g. 'hi', 'en')
+    },
     transcript: [
       {
         role: { type: String, enum: ["user", "model"], required: true },

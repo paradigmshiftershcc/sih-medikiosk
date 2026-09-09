@@ -20,6 +20,73 @@ const pickSupportedMimeType = () => {
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || '';
 };
 
+// Bhashini ASR requires WAV (16 kHz mono preferred) — webm/opus from
+// MediaRecorder is NOT accepted by the pipeline. Convert in-browser with
+// Web Audio (no new dependency): decode -> mix to mono -> resample to
+// 16 kHz -> 16-bit PCM WAV. Sarvam also prefers WAV, so one format serves
+// both providers.
+const encodeWav16kMono = async (blob) => {
+  const arrayBuffer = await blob.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) throw new Error('webaudio-unsupported');
+  const ctx = new AudioCtx();
+  try {
+    const decoded = await ctx.decodeAudioData(arrayBuffer);
+    if (!decoded.duration || decoded.duration < 0.2 || decoded.length === 0) {
+      throw new Error('empty-recording');
+    }
+    const targetRate = 16000;
+    const numChannels = decoded.numberOfChannels;
+    const channels = [];
+    for (let c = 0; c < numChannels; c++) channels.push(decoded.getChannelData(c));
+    const targetLen = Math.max(1, Math.round((decoded.length / decoded.sampleRate) * targetRate));
+    const mono = new Float32Array(targetLen);
+    for (let i = 0; i < targetLen; i++) {
+      const srcIdx = (i / targetRate) * decoded.sampleRate;
+      const i0 = Math.floor(srcIdx);
+      const i1 = Math.min(i0 + 1, decoded.length - 1);
+      const frac = srcIdx - i0;
+      let sum = 0;
+      for (let c = 0; c < numChannels; c++) {
+        sum += channels[c][i0] * (1 - frac) + channels[c][i1] * frac;
+      }
+      mono[i] = sum / numChannels;
+    }
+    const dataBytes = targetLen * 2;
+    const buffer = new ArrayBuffer(44 + dataBytes);
+    const view = new DataView(buffer);
+    const writeStr = (offset, str) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + dataBytes, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, targetRate, true);
+    view.setUint32(28, targetRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, dataBytes, true);
+    for (let i = 0; i < targetLen; i++) {
+      const s = Math.max(-1, Math.min(1, mono[i]));
+      view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return { base64Audio: btoa(binary), mimeType: 'audio/wav' };
+  } finally {
+    if (ctx.close) await ctx.close().catch(() => {});
+  }
+};
+
 export const useSpeech = (options = {}) => {
   const [isListening, setIsListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState('idle');
@@ -48,30 +115,24 @@ export const useSpeech = (options = {}) => {
       mediaRecorderRef.current.onstop = () => {
         const audioBlob = new Blob(chunksRef.current, { type: mediaRecorderRef.current?.mimeType || 'audio/webm' });
 
-        // Convert Blob to Base64 for the API payload
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          if (typeof reader.result !== 'string') {
+        // Convert to 16 kHz mono WAV for the Bhashini ASR pipeline,
+        // then send Base64 to the backend for transcription.
+        encodeWav16kMono(audioBlob).then(
+          ({ base64Audio, mimeType }) => {
+            if (!base64Audio) {
+              setVoiceStatus('error');
+              setVoiceError('The recording was empty. Please try again or type your answer.');
+              return;
+            }
+            if (options.onAudioReady) {
+              options.onAudioReady(base64Audio, mimeType);
+            }
+          },
+          () => {
             setVoiceStatus('error');
-            setVoiceError('Could not read the recording. Please try again or type your answer.');
-            return;
+            setVoiceError('Could not process the recording. Please try again or type your answer.');
           }
-          // Remove the data url prefix (e.g., data:audio/webm;base64,)
-          const base64Audio = reader.result.split(',')[1];
-          if (!base64Audio) {
-            setVoiceStatus('error');
-            setVoiceError('The recording was empty. Please try again or type your answer.');
-            return;
-          }
-          if (options.onAudioReady) {
-            options.onAudioReady(base64Audio, audioBlob.type);
-          }
-        };
-        reader.onerror = () => {
-          setVoiceStatus('error');
-          setVoiceError('Could not read the recording. Please try again or type your answer.');
-        };
+        );
       };
 
       mediaRecorderRef.current.start();
