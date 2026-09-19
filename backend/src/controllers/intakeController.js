@@ -6,13 +6,15 @@ import {
 } from "../services/geminiService.js";
 import { englishTextToSpeech } from "../services/bhashiniService.js";
 import { transcribeAudio } from "../services/transcriptionService.js";
+import { checkDrugInteractions } from "../services/interactionService.js";
+import { buildCaseIndex } from "../services/retrievalService.js";
 
 export const processChatTurn = async (req, res) => {
   try {
     // Voice input arrives as server-transcribed text via the provider-agnostic
     // transcription layer (Bhashini primary, Sarvam fallback).
     // From here on the clinical pipeline treats it exactly like typed text.
-    const { caseId, message, audioBase64, mimeType, language = "en" } = req.body;
+    const { caseId, message, audioBase64, mimeType, language = "en", ayushMode = false, informant, patientConsentGiven } = req.body;
     const patientId = req.user.id;
 
     let englishInputText = message;
@@ -40,10 +42,19 @@ export const processChatTurn = async (req, res) => {
     // Initialize or fetch case
     let caseRecord;
     if (!caseId) {
+      const consentGiven = patientConsentGiven !== false;
+      const normalizedInformant = {
+        type: informant?.type === "companion" ? "companion" : "self",
+        relationship: informant?.relationship || "",
+      };
       caseRecord = await CaseRecord.create({
         patientId,
         language: typeof language === "string" ? language : "en",
+        ayushMode: Boolean(ayushMode),
         transcript: [{ role: "user", content: englishInputText }],
+        patientConsentGiven: consentGiven,
+        consentAt: consentGiven ? new Date() : null,
+        informant: normalizedInformant,
       });
     } else {
       caseRecord = await CaseRecord.findById(caseId);
@@ -54,10 +65,20 @@ export const processChatTurn = async (req, res) => {
           .status(403)
           .json({ message: "Unauthorized access to case." });
       }
+      if (ayushMode) caseRecord.ayushMode = true;
+      if (informant?.type) {
+        caseRecord.informant = {
+          type: informant.type === "companion" ? "companion" : "self",
+          relationship: informant.relationship || "",
+        };
+      }
       caseRecord.transcript.push({ role: "user", content: englishInputText });
     }
 
-    const aiData = await generateNextQuestion(caseRecord.transcript);
+    const aiData = await generateNextQuestion(caseRecord.transcript, {
+      ayushMode: caseRecord.ayushMode,
+      informant: caseRecord.informant,
+    });
 
     caseRecord.transcript.push({ role: "model", content: aiData.response });
 
@@ -161,6 +182,66 @@ export const saveAyushData = async (req, res) => {
   }
 };
 
+export const previewCaseReview = async (req, res) => {
+  try {
+    const { caseId } = req.params;
+
+    const caseRecord = await CaseRecord.findById(caseId).populate(
+      "patientId",
+      "name abhaId",
+    );
+    if (!caseRecord) return res.status(404).json({ message: "Case not found" });
+    if (caseRecord.patientId._id.toString() !== req.user.id) {
+      return res.status(403).json({ message: "Unauthorized access to case." });
+    }
+
+    // Build the clinical summary now so the patient can review what the
+    // doctor will see. No assignment happens here; the case is only
+    // routed to a doctor after the patient confirms on the review screen.
+    if (!caseRecord.finalSummary) {
+      try {
+        const summary = await generateClinicalSummary(caseRecord);
+        caseRecord.finalSummary = summary;
+        await caseRecord.save();
+      } catch (summaryError) {
+        console.error(
+          "Review summary generation failed:",
+          summaryError?.message || summaryError,
+        );
+        return res.status(500).json({
+          message: "Failed to prepare the review summary. Please try again.",
+        });
+      }
+    }
+
+    // Build the retrieval index so the doctor copilot can use RAG.
+    try {
+      await buildCaseIndex(caseRecord);
+    } catch (indexError) {
+      console.error(
+        "Case indexing failed:",
+        indexError?.message || indexError,
+      );
+    }
+
+    res.status(200).json({
+      caseId: caseRecord._id,
+      patient: caseRecord.patientId,
+      summary: caseRecord.finalSummary,
+      ayushData: caseRecord.ayushData,
+      ocrData: caseRecord.ocrData,
+      redFlags: caseRecord.redFlags,
+      ayushMode: caseRecord.ayushMode,
+      status: caseRecord.status,
+      priority: caseRecord.priority,
+      createdAt: caseRecord.createdAt,
+    });
+  } catch (error) {
+    console.error("Review Preview Error:", error?.message || error);
+    res.status(500).json({ message: "Error preparing the review." });
+  }
+};
+
 export const getPatientHistory = async (req, res) => {
   try {
     const cases = await CaseRecord.find({ patientId: req.user.id })
@@ -208,6 +289,38 @@ export const completeCaseAndAssign = async (req, res) => {
             message: "Failed to generate clinical summary. Please try again.",
           });
       }
+    }
+
+    // 1b. Drug-drug interaction check across all of this patient's records.
+    try {
+      const patientCases = await CaseRecord.find({ patientId }).select(
+        "ocrData.medicines finalSummary.medications",
+      );
+      const allMedications = [];
+      patientCases.forEach((record) => {
+        (record.ocrData?.medicines || []).forEach((med) => {
+          if (med?.name) allMedications.push(med.name);
+        });
+        (record.finalSummary?.medications || []).forEach((med) =>
+          allMedications.push(med),
+        );
+      });
+      caseRecord.interactionAlerts = checkDrugInteractions(allMedications);
+    } catch (interactionError) {
+      console.error(
+        "Drug interaction check failed:",
+        interactionError?.message || interactionError,
+      );
+    }
+
+    // 1c. Build the retrieval index for the doctor copilot (RAG).
+    try {
+      await buildCaseIndex(caseRecord);
+    } catch (indexError) {
+      console.error(
+        "Case indexing failed:",
+        indexError?.message || indexError,
+      );
     }
 
     // 2. Deterministic Recommendation Engine

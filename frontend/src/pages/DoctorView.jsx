@@ -1,11 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../services/api.js';
-import { Loader2, Activity, Pill, History, ClipboardList, Leaf, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, Activity, Pill, History, ClipboardList, Leaf, AlertCircle, ArrowLeft, ShieldAlert, Download } from 'lucide-react';
 // Adding explicit .jsx extensions to satisfy Vite strictness
 import SummarySection from '../components/doctor/SummarySection.jsx';
 import RedFlagBadge from '../components/doctor/RedFlagBadge.jsx';
+import SummaryEditor from '../components/doctor/SummaryEditor.jsx';
 import Button from '../components/ui/Button.jsx';
+
+// Charts are heavy; load the Recharts-based panel only when this view renders.
+const AnalyticsPanel = lazy(
+  () => import('../components/analytics/AnalyticsPanel.jsx'),
+);
 
 export default function DoctorView() {
   const { caseId } = useParams();
@@ -13,6 +19,7 @@ export default function DoctorView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     const fetchSummary = async () => {
@@ -31,7 +38,7 @@ export default function DoctorView() {
     if (caseId) {
       fetchSummary();
     }
-  }, [caseId]);
+  }, [caseId, reload]);
 
   if (loading) {
     return (
@@ -53,7 +60,56 @@ export default function DoctorView() {
     );
   }
 
-  const { summary, patient, redFlags, ayushMode } = data;
+  const { summary, patient, redFlags, ayushMode, interactionAlerts, status } = data;
+
+  const exportFhir = async () => {
+    try {
+      const { data: bundle } = await api.get(
+        `/fhir/case/${caseId}/OPConsultation`,
+      );
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+        type: 'application/fhir+json',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `OPConsultation-${caseId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('FHIR export failed:', err);
+    }
+  };
+
+  const AYUSH_ASSESSMENT_LABELS = [
+    { key: 'prakriti', label: 'Prakriti (Constitution)' },
+    { key: 'vikriti', label: 'Vikriti (Imbalance)' },
+    { key: 'sara', label: 'Sara (Vitality)' },
+    { key: 'samhanana', label: 'Samhanana (Frame)' },
+    { key: 'pramana', label: 'Pramana (Proportion)' },
+    { key: 'satmya', label: 'Satmya (Tolerance)' },
+    { key: 'sattva', label: 'Sattva (Mind)' },
+    { key: 'agni', label: 'Agni (Digestion)' },
+    { key: 'koshtha', label: 'Koshtha (Bowels)' },
+    { key: 'abhyavaharanaShakti', label: 'Ahara Shakti (Appetite)' },
+    { key: 'jaranaShakti', label: 'Jarana Shakti (Digestion)' },
+    { key: 'vyayamaShakti', label: 'Vyayama Shakti (Endurance)' },
+    { key: 'vaya', label: 'Vaya (Age Stage)' },
+    { key: 'ashtavidhaJihva', label: 'Jihva (Tongue)' },
+    { key: 'ashtavidhaNidra', label: 'Nidra (Sleep)' },
+    { key: 'ashtavidhaMutraMala', label: 'Mutra-Mala' },
+    { key: 'nidanaAharaHetu', label: 'Nidana — Ahara Hetu' },
+    { key: 'nidanaViharaHetu', label: 'Nidana — Vihara Hetu' },
+    { key: 'nidanaManasikaHetu', label: 'Nidana — Manasika Hetu' },
+  ];
+
+  const ayushAssessment = summary?.ayushAssessment;
+  const assessedFields = AYUSH_ASSESSMENT_LABELS.filter(
+    ({ key }) =>
+      ayushAssessment?.[key] && ayushAssessment[key] !== 'Not assessed',
+  );
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12 animate-in fade-in duration-500">
@@ -66,8 +122,17 @@ export default function DoctorView() {
         >
           <ArrowLeft className="w-4 h-4" /> Exit Doctor View
         </button>
-        <div className="bg-brand-600 text-white px-3 py-1 rounded-full text-sm font-bold tracking-wide shadow-sm">
-          CONFIDENTIAL - DOCTOR VIEW
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportFhir}
+            className="flex items-center gap-2 text-gray-600 hover:bg-gray-100 px-3 py-2 rounded-xl transition-colors font-medium text-sm"
+            title="Export as FHIR R4 (OPConsultation)"
+          >
+            <Download className="w-4 h-4" /> Export FHIR
+          </button>
+          <div className="bg-brand-600 text-white px-3 py-1 rounded-full text-sm font-bold tracking-wide shadow-sm">
+            CONFIDENTIAL - DOCTOR VIEW
+          </div>
         </div>
       </div>
 
@@ -86,6 +151,26 @@ export default function DoctorView() {
       {/* Red Flags Alert */}
       <RedFlagBadge flags={redFlags} />
 
+      {/* Drug Interaction Alerts */}
+      {interactionAlerts?.length > 0 && (
+        <div className="bg-amber-50 p-5 rounded-2xl border border-amber-200 shadow-sm">
+          <div className="flex items-center gap-2 text-amber-800 border-b border-amber-100 pb-2 mb-3">
+            <ShieldAlert className="w-5 h-5" />
+            <h3 className="font-semibold text-lg">
+              Drug Interaction Alerts ({interactionAlerts.length})
+            </h3>
+          </div>
+          <ul className="space-y-1.5">
+            {interactionAlerts.map((alert, index) => (
+              <li key={index} className="text-sm text-amber-900 flex gap-2">
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                {alert}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Main Clinical Summary Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
@@ -102,13 +187,31 @@ export default function DoctorView() {
             icon={ClipboardList} 
           />
           
-          {ayushMode && summary?.ayushSummary && (
+          {ayushMode && (summary?.ayushSummary || assessedFields.length > 0) && (
             <div className="bg-green-50 p-5 rounded-2xl border border-green-200 shadow-sm">
               <div className="flex items-center gap-2 text-green-800 border-b border-green-100 pb-2 mb-3">
                 <Leaf className="w-5 h-5" />
                 <h3 className="font-semibold text-lg">Dashavidha Pariksha (AYUSH Profiling)</h3>
               </div>
-              <p className="text-green-900 leading-relaxed">{summary.ayushSummary}</p>
+
+              {assessedFields.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {assessedFields.map(({ key, label }) => (
+                    <div key={key} className="bg-white/70 rounded-xl px-3 py-2 border border-green-100">
+                      <p className="text-[11px] uppercase tracking-wide font-semibold text-green-700">{label}</p>
+                      <p className="text-sm text-green-950 font-medium">{ayushAssessment[key]}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-green-900 leading-relaxed">{summary.ayushSummary}</p>
+              )}
+
+              {summary?.ayushSummary && (
+                <p className="text-green-900 leading-relaxed mt-3 text-sm border-t border-green-100 pt-3">
+                  {summary.ayushSummary}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -132,6 +235,25 @@ export default function DoctorView() {
           />
         </div>
       </div>
+
+      {/* Summary editing, verification & copilot */}
+      <SummaryEditor
+        caseId={caseId}
+        summary={summary}
+        status={status}
+        onVerified={() => setReload((r) => r + 1)}
+      />
+
+      {/* Trends & Medical Timeline */}
+      <Suspense
+        fallback={
+          <div className="flex justify-center py-10">
+            <Loader2 className="w-6 h-6 animate-spin text-brand-400" />
+          </div>
+        }
+      >
+        <AnalyticsPanel scope={{ type: 'case', caseId }} />
+      </Suspense>
     </div>
   );
 }

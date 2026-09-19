@@ -122,6 +122,32 @@ const SUMMARY_SCHEMA = {
     ayushSummary: {
       type: ["string", "null"],
     },
+    ayushAssessment: {
+      type: "object",
+      description:
+        "Structured Dashavidha Pariksha fields. Populate ONLY from case AYUSH data; use 'Not assessed' when a field is missing.",
+      properties: {
+        prakriti: { type: "string" },
+        vikriti: { type: "string" },
+        sara: { type: "string" },
+        samhanana: { type: "string" },
+        pramana: { type: "string" },
+        satmya: { type: "string" },
+        sattva: { type: "string" },
+        abhyavaharanaShakti: { type: "string" },
+        jaranaShakti: { type: "string" },
+        vyayamaShakti: { type: "string" },
+        vaya: { type: "string" },
+        agni: { type: "string" },
+        koshtha: { type: "string" },
+        ashtavidhaJihva: { type: "string" },
+        ashtavidhaNidra: { type: "string" },
+        ashtavidhaMutraMala: { type: "string" },
+        nidanaAharaHetu: { type: "string" },
+        nidanaViharaHetu: { type: "string" },
+        nidanaManasikaHetu: { type: "string" },
+      },
+    },
     documentFindings: {
       type: "array",
       items: { type: "string" },
@@ -202,7 +228,22 @@ const callGeminiWithTimeout = async (model, contents, config, timeoutMs) => {
   return Promise.race([apiCall, timeoutPromise]);
 };
 
-export const generateNextQuestion = async (transcript) => {
+export const generateNextQuestion = async (transcript, options = {}) => {
+  const { ayushMode = false, informant = null } = options;
+
+  const companionMode = informant?.type === "companion";
+  const companionBlock = companionMode
+    ? `
+COMPANION MODE (enabled):
+This history is being provided by an accompanying person, not the patient
+(relationship: ${informant?.relationship || "companion"}). Rules:
+- Address the companion directly and ask them to answer on the patient's behalf.
+- Phrase questions as "Does the patient..." / "Has the patient..." rather than
+  "Do you...".
+- Treat all answers as collateral history.
+`
+    : "";
+
   const formattedContents = transcript.map((message) => ({
     role: message.role === "model" ? "model" : "user",
     parts: [{ text: message.content }],
@@ -242,6 +283,28 @@ LANGUAGE RULES:
 - Avoid medical jargon unless the patient already used it
 - Use "Tell me more about..." rather than "Elaborate on..."
 - Be warm and encouraging
+
+${companionBlock}
+AYUSH MODE (enabled):
+This interview supports an Ayurvedic consultation (AYUSH OPD). After the chief
+complaint and HPI (SOCRATES) are mostly covered, naturally weave in questions
+about the patient's constitution and lifestyle, ONE question at a time, using
+plain language:
+- Digestion & appetite: "How is your appetite lately?" and "Do you feel heavy
+  or get gas after meals?" (Ahara Shakti, Agni)
+- Bowel habits: "Are your bowel movements regular, or do you feel constipated
+  or loose?" (Koshtha)
+- Sleep: "How is your sleep — sound, or do you wake up unrefreshed?" (Nidra)
+- Tolerance: "Does cold weather or cold food bother you, or heat bother you
+  more?" (Satmya)
+- Lifestyle triggers: "Do you skip meals, eat late at night, or sleep during
+  the day?" (Nidana - Ahara/Vihara hetu)
+Rules:
+- Blend these across multiple turns; never bundle several AYUSH questions into
+  one turn.
+- Never re-ask anything the patient has already answered, whether in the
+  clinical or AYUSH portion.
+- Only run AYUSH questions when the AYUSH mode block is active.
 
 Return ONLY the requested JSON structure.
 `;
@@ -360,9 +423,13 @@ STRICT RULES:
 10. If a document field is uncertain, preserve that uncertainty.
 11. Red flags should represent symptoms requiring clinician attention, not diagnoses.
 12. AYUSH data should be summarized descriptively. Do not assign an Ayurvedic diagnosis.
-13. The HPI should be specific, compact, and organized around relevant SOCRATES elements.
-14. Avoid repeating the same fact in multiple sections unless clinically useful.
-15. Return ONLY the requested JSON structure.
+13. When AYUSH data is present, populate ayushAssessment with the Dashavidha fields,
+    mapping each field exactly as reported (e.g., agni "Manda", koshtha "Krura").
+    Use "Not assessed" for any Dashavidha field absent from the AYUSH data. Do not
+    infer a field value that was not recorded.
+14. The HPI should be specific, compact, and organized around relevant SOCRATES elements.
+15. Avoid repeating the same fact in multiple sections unless clinically useful.
+16. Return ONLY the requested JSON structure.
 
 For HPI, use this format when applicable:
 
@@ -448,4 +515,88 @@ ${JSON.stringify(caseRecord.redFlags || [])}
       throw new Error("SUMMARY_GENERATION_FAILED");
     }
   }
+};
+
+const COPILOT_TIMEOUT_MS = 15000;
+
+// Doctor-facing grounded Q&A over a single case record ("RAG" over the case).
+// Answers ONLY from the supplied record and refuses to fabricate.
+export const answerDoctorQuery = async (context = {}, query = "") => {
+  if (!query || typeof query !== "string" || !query.trim()) {
+    throw new Error("EMPTY_QUERY");
+  }
+
+  const systemInstruction = `
+You are MediKiosk Copilot, an assistant for a licensed clinician reviewing a
+single patient case. You support the doctor by retrieving and organizing facts
+already present in the case record.
+
+The RETRIEVED CASE EXCERPTS below were selected by a retrieval engine as the
+passages most relevant to the doctor's question. They may be incomplete.
+
+STRICT RULES:
+1. Answer ONLY using the RETRIEVED CASE EXCERPTS. Do not use outside knowledge
+   to assert facts about this patient.
+2. If the excerpts do not contain the answer, say exactly:
+   "This information is not available in the case record."
+3. Never diagnose, never prescribe, never recommend a dose.
+4. Quote exact values and units when present.
+5. Be concise: 1-4 sentences, or a short bulleted list when enumerating.
+6. Cite the excerpt's section in brackets, e.g. [Investigations], [HPI],
+   [AYUSH], [Red Flags], [Transcript].
+7. If the question asks for a clinical decision, surface the relevant recorded
+   facts and note that the decision rests with the treating clinician.
+`;
+
+  const retrieved = Array.isArray(context.retrieved) ? context.retrieved : [];
+  const excerptBlock =
+    retrieved.length > 0
+      ? retrieved
+          .map(
+            (chunk, index) =>
+              `[${index + 1}] (${chunk.section}) ${chunk.text}`,
+          )
+          .join("\n\n")
+      : "No indexed excerpts were retrieved for this question.";
+
+  const promptContent = `
+PATIENT: ${context.patientName || "Unknown"}
+
+RETRIEVED CASE EXCERPTS:
+${excerptBlock}
+
+DOCTOR'S QUESTION:
+${query}
+`;
+
+  const modelsToTry = [PRIMARY_MODEL, FALLBACK_MODEL];
+
+  for (const model of modelsToTry) {
+    if (isModelInCooldown(model)) continue;
+    try {
+      console.log(`[Gemini API] Copilot query using ${model}.`);
+      const response = await callGeminiWithTimeout(
+        model,
+        promptContent,
+        {
+          systemInstruction,
+          thinkingConfig: { thinkingLevel: "medium" },
+        },
+        COPILOT_TIMEOUT_MS,
+      );
+
+      const answer = (response.text || "").trim();
+      if (!answer) throw new Error("EMPTY_AI_RESPONSE");
+
+      resetModelHealth(model);
+      return answer;
+    } catch (error) {
+      console.error(
+        `[Gemini API] Copilot error on ${model}: ${error?.message || error}`,
+      );
+      markModelFailure(model);
+    }
+  }
+
+  throw new Error("COPILOT_UNAVAILABLE");
 };

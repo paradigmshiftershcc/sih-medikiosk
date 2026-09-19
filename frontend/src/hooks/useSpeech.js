@@ -103,7 +103,16 @@ export const useSpeech = (options = {}) => {
     }
     try {
       setVoiceError('');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request browser-level clean-up so a noisy OPD and speaker bleed-in
+      // do not corrupt the ASR input.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+      });
       const mimeType = pickSupportedMimeType();
       mediaRecorderRef.current = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];

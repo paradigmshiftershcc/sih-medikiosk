@@ -61,11 +61,32 @@ const caseRecordSchema = new mongoose.Schema(
       default: true,
     },
     ayushData: {
-      prakriti: String,
-      agni: String,
-      koshtha: String,
-      ahara: String,
-      vihara: String,
+      // Dashavidha Pariksha (Rogi Pariksha - patient terrain assessment)
+      prakriti: String, // Constitution (Vata / Pitta / Kapha / Mixed)
+      vikriti: String, // Current imbalance
+      sara: String, // Tissue vitality / excellence
+      samhanana: String, // Body frame / compactness
+      pramana: String, // Anthropometric proportion
+      satmya: String, // Habituation / tolerance (food & climate)
+      sattva: String, // Mental strength / emotional stability
+      aharaShakti: {
+        abhyavaharanaShakti: String, // Appetite / food intake capacity
+        jaranaShakti: String, // Digestion / assimilation capacity after meals
+      },
+      vyayamaShakti: String, // Physical endurance
+      vaya: String, // Life stage (Bala / Madhyama / Vriddha)
+      agni: String, // Digestive fire (Sama / Vishama / Tikshna / Manda)
+      koshtha: String, // Bowel nature (Krura / Mridu / Madhya)
+      ashtavidha: {
+        jihva: String, // Tongue examination cue
+        nidra: String, // Sleep quality
+        mutraMala: String, // Urine & stool cues
+      },
+      nidana: {
+        aharaHetu: String, // Dietary causative factors
+        viharaHetu: String, // Lifestyle causative factors
+        manasikaHetu: String, // Mental / emotional causative factors
+      },
     },
     finalSummary: {
       type: Object, // Store the structured JSON output from Gemini
@@ -73,7 +94,7 @@ const caseRecordSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["IN_PROGRESS", "ASSIGNED", "COMPLETED"],
+      enum: ["IN_PROGRESS", "ASSIGNED", "COMPLETED", "VERIFIED"],
       default: "IN_PROGRESS",
     },
     assignedDoctorId: {
@@ -88,6 +109,25 @@ const caseRecordSchema = new mongoose.Schema(
     },
     assignmentReason: { type: String },
     patientConsentGiven: { type: Boolean, default: true }, // MVP Mock Consent
+    consentAt: { type: Date, default: null },
+    // Who provided the history: the patient or an accompanying person.
+    informant: {
+      type: {
+        type: String,
+        enum: ["self", "companion"],
+        default: "self",
+      },
+      relationship: { type: String, default: "" },
+    },
+    // Drug-drug interactions detected across the patient's medication list.
+    interactionAlerts: [{ type: String }],
+    // Physician verification of the AI-generated summary.
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Doctor",
+      default: null,
+    },
+    verifiedAt: { type: Date, default: null },
     assignedAt: { type: Date, default: null },
   },
   { timestamps: true },

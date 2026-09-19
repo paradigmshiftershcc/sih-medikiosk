@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Mic, Send, Volume2, AlertTriangle, Loader2, CheckCircle2, Globe } from 'lucide-react';
+import { Mic, Send, Volume2, AlertTriangle, Loader2, CheckCircle2, Globe, Activity, Radio } from 'lucide-react';
 import { useSpeech } from '../../hooks/useSpeech';
+import PainScale from './PainScale.jsx';
 import api from '../../services/api';
 
-export default function ChatInterface({ onComplete }) {
+export default function ChatInterface({ onComplete, ayushMode = false, informant = null, consentGiven = true, audioConsent = true }) {
   const [messages, setMessages] = useState([
     { role: 'model', content: 'Hello! I am your AI assistant. To help the doctor, could you tell me what brings you to the hospital today?' }
   ]);
@@ -13,13 +14,15 @@ export default function ChatInterface({ onComplete }) {
   const [redFlags, setRedFlags] = useState([]);
   const [autoTTS, setAutoTTS] = useState(true);
   const [isHistoryComplete, setIsHistoryComplete] = useState(false);
+  const [showPainScale, setShowPainScale] = useState(false);
+  const [pushToTalk, setPushToTalk] = useState(false);
   
   // Local language state (defaulting to English, togglable to Hindi)
   const [language, setLanguage] = useState('en');
   
   const chatEndRef = useRef(null);
 
-  const { isListening, voiceStatus, voiceError, setVoiceStatus, setVoiceError, clearVoiceError, toggleRecording, playAudioBase64 } = useSpeech({
+  const { isListening, voiceStatus, voiceError, setVoiceStatus, setVoiceError, clearVoiceError, toggleRecording, startListening, stopListening, playAudioBase64 } = useSpeech({
     onAudioReady: (base64, mimeType) => {
       // Transcribe only: the text goes into the input for patient review.
       // Nothing is submitted to the clinical chat until Send is pressed.
@@ -82,7 +85,10 @@ export default function ChatInterface({ onComplete }) {
       const response = await api.post('/intake/chat', {
         caseId,
         message: textToSend,
-        language
+        language,
+        ayushMode: Boolean(ayushMode),
+        patientConsentGiven: Boolean(consentGiven),
+        informant: informant || undefined
       }, {
         timeout: 20000
       });
@@ -132,13 +138,29 @@ export default function ChatInterface({ onComplete }) {
             </select>
           </div>
         </div>
-        <button 
-          onClick={() => setAutoTTS(!autoTTS)}
-          className={`p-2 rounded-full transition-colors ${autoTTS ? 'bg-brand-200 text-brand-800' : 'bg-gray-200 text-gray-500'}`}
-          title="Toggle Audio Feedback"
-        >
-          <Volume2 className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowPainScale((v) => !v)}
+            className={`p-2 rounded-full transition-colors ${showPainScale ? 'bg-brand-200 text-brand-800' : 'bg-gray-200 text-gray-500'}`}
+            title="Pain scale & body map"
+          >
+            <Activity className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setPushToTalk((v) => !v)}
+            className={`p-2 rounded-full transition-colors ${pushToTalk ? 'bg-brand-200 text-brand-800' : 'bg-gray-200 text-gray-500'}`}
+            title="Push-to-talk (hold mic to record)"
+          >
+            <Radio className="w-5 h-5" />
+          </button>
+          <button 
+            onClick={() => setAutoTTS(!autoTTS)}
+            className={`p-2 rounded-full transition-colors ${autoTTS ? 'bg-brand-200 text-brand-800' : 'bg-gray-200 text-gray-500'}`}
+            title="Toggle Audio Feedback"
+          >
+            <Volume2 className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {redFlags.length > 0 && (
@@ -184,18 +206,35 @@ export default function ChatInterface({ onComplete }) {
 
       {/* Input Area */}
       <div className="p-3 sm:p-4 bg-white border-t border-brand-100 flex flex-col gap-3">
+        {showPainScale && (
+          <PainScale
+            onSend={(text) => handleSendMessage(text)}
+            onClose={() => setShowPainScale(false)}
+          />
+        )}
         <div className="flex items-center gap-2 sm:gap-3 max-w-3xl mx-auto w-full">
           
-          {/* Toggle Mic: first click starts recording, second click stops */}
+          {/* Mic: toggle by default, or press-and-hold in push-to-talk mode */}
           <button
-            onClick={toggleRecording}
-            disabled={isLoading || voiceStatus === 'transcribing'}
+            onClick={() => { if (!pushToTalk) toggleRecording(); }}
+            onPointerDown={() => { if (pushToTalk) startListening(); }}
+            onPointerUp={() => { if (pushToTalk) stopListening(); }}
+            onPointerLeave={() => { if (pushToTalk && isListening) stopListening(); }}
+            disabled={isLoading || voiceStatus === 'transcribing' || !audioConsent}
             className={`p-3 sm:p-4 rounded-full flex-shrink-0 transition-all ${
               isListening 
                 ? 'bg-red-100 text-red-600 animate-pulse shadow-inner' 
                 : 'bg-brand-100 text-brand-600 hover:bg-brand-200 shadow-sm'
-            }`}
-            title={isListening ? "Stop recording" : "Start recording"}
+            } ${!audioConsent ? 'opacity-40 cursor-not-allowed' : ''}`}
+            title={
+              !audioConsent
+                ? 'Voice input disabled (consent not given)'
+                : pushToTalk
+                  ? 'Hold to talk'
+                  : isListening
+                    ? 'Stop recording'
+                    : 'Start recording'
+            }
           >
             <Mic className="w-6 h-6 sm:w-7 sm:h-7" />
           </button>
@@ -205,7 +244,19 @@ export default function ChatInterface({ onComplete }) {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-            placeholder={isListening ? "Recording... Tap mic to stop" : voiceStatus === 'transcribing' ? "Transcribing..." : "Type your answer..."}
+            placeholder={
+              !audioConsent
+                ? 'Type your answer...'
+                : pushToTalk
+                  ? isListening
+                    ? 'Recording... release to stop'
+                    : 'Hold the mic to talk, or type'
+                  : isListening
+                    ? 'Recording... Tap mic to stop'
+                    : voiceStatus === 'transcribing'
+                      ? 'Transcribing...'
+                      : 'Type your answer...'
+            }
             disabled={isListening || voiceStatus === 'transcribing'}
             className="flex-1 min-w-0 py-3 px-3 sm:px-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-gray-50 text-base sm:text-lg"
           />

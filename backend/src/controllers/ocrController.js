@@ -1,5 +1,6 @@
 import CaseRecord from '../models/CaseRecord.js';
 import { processDocumentImage } from '../services/ocrService.js';
+import { atomizeObservations } from '../services/observationService.js';
 
 // Allowed document formats fed to Gemini multimodal.
 const ALLOWED_MIME_TYPES = new Set([
@@ -58,10 +59,23 @@ export const processOcrUpload = async (req, res) => {
     caseRecord.ocrData = extractedData;
     await caseRecord.save();
 
+    // Atomize numeric lab values into indexed observations for trends/filters.
+    let observationCount = 0;
+    try {
+      observationCount = await atomizeObservations(caseRecord);
+    } catch (atomizeError) {
+      // Observation indexing is best-effort; the document itself is saved.
+      console.error(
+        '[OCR Controller] Observation atomization failed:',
+        atomizeError?.message || atomizeError,
+      );
+    }
+
     console.log(`[OCR Controller] Document processed for case ${caseId}.`);
     res.status(200).json({
       message: 'Document processed successfully',
       extractedData: caseRecord.ocrData,
+      observationsIndexed: observationCount,
     });
   } catch (error) {
     // Never log the base64 image or full payload.

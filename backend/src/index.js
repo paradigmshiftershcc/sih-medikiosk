@@ -9,6 +9,9 @@ import intakeRoutes from "./routes/intakeRoutes.js";
 import ocrRoutes from "./routes/ocrRoutes.js";
 import summaryRoutes from "./routes/summaryRoutes.js";
 import doctorRoutes from "./routes/doctorRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
+import fhirRoutes from "./routes/fhirRoutes.js";
+import abhaRoutes from "./routes/abhaRoutes.js";
 import Doctor from "./models/Doctor.js";
 
 // Load env vars
@@ -97,6 +100,9 @@ app.use("/api/intake", intakeRoutes);
 app.use("/api/ocr", ocrRoutes);
 app.use("/api/summary", summaryRoutes);
 app.use("/api/doctor", doctorRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/fhir", fhirRoutes);
+app.use("/api/abha", abhaRoutes);
 
 // 404 for unknown API routes
 app.use((req, res) => {
