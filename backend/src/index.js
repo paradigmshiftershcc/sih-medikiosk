@@ -129,7 +129,7 @@ const startServer = async () => {
       const mode = process.env.NODE_ENV || "development";
       console.log(`Server running in ${mode} mode on port ${PORT}`);
 
-      // Seed support officers (HPR-style registry) for the demo. Internal
+      // Seed support officers (mock officer registry) for the demo. Internal
       // model/role names are retained for engine compatibility; the visible
       // product language is officer/counsellor.
       Doctor.countDocuments()

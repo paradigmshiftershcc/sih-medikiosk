@@ -9,11 +9,11 @@ const patientSchema = new mongoose.Schema(
     },
     name: {
       type: String,
-      default: 'Guest Patient', // Default name until they update their profile
+      default: 'Guest Complainant', // Default name until they update their profile
     },
     abhaId: {
       type: String,
-      // Mock 14-digit ABHA format: XX-XXXX-XXXX-XXXX
+      // Legacy-compat mock identifier (format XX-XXXX-XXXX-XXXX); unused by Sahaay UI
     },
     isAbhaLinked: {
       type: Boolean,

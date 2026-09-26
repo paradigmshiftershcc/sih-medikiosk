@@ -21,7 +21,7 @@ implemented in this prototype.
 
 ## 3. Technical Approach
 
-- **Frontend:** React 19 + Vite + Tailwind (v4 tokens), progressive SPA with `Login`, `OfficerLogin`, `IntakeFlow` (consent → trauma-informed chat → review → submit), `CaseStatus`, `CommandCenter`, `SupportCaseDetail`. Mobile-friendly for kiosk terminals.
+- **Frontend:** React 19 + Vite + Tailwind (v4 tokens), progressive SPA with `Login`, `OfficerLogin`, `IntakeFlow` (consent → trauma-informed chat → review → submit), `CaseStatus`, officer `OfficerDashboard` + `PriorityQueue` + case lists/analytics, `SupportCaseDetail`. Mobile-friendly for kiosk terminals.
 - **Backend:** Node.js + Express + Mongoose (ESM). JWT role-based auth with mock OTP (`123456`) demo login.
 - **Multilingual + voice:** MediaRecorder mic capture → WAV → server-side transcription (Bhashini primary, **Sarvam Saaras v3** fallback) → editable text → manual send, transparently in English / Hindi / Marathi / Gujarati / Bengali / auto. Raw audio is never persisted.
 - **AI layer (Gemini 3.6 Flash baseline, verified ids, `GEMINI_MODEL` chain):** trauma-informed single-question interviewer with an urgent-safety rule (stops and flags "immediate safety may be at risk"); structured, evidence-quoted signal extraction incl. incident type, immediate safety, support needs, and per-signal confidence. Optional in-memory audio-affect observations behind `ENABLE_VOICE_AFFECT_AI`. Deterministic fallback with an explicit "AI analysis unavailable" banner when the provider is down.

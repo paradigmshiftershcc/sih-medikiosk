@@ -38,7 +38,7 @@ export const verifyOtp = async (req, res) => {
     let patient = await Patient.findOne({ phone });
 
     if (!patient) {
-      // Create new patient with a mock ABHA ID
+      // Create new complainant record with a legacy-compat mock identifier
       const randomAbha = `${Math.floor(10 + Math.random() * 90)}-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(1000 + Math.random() * 9000)}`;
       patient = await Patient.create({
         phone,

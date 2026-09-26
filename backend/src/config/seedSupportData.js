@@ -114,7 +114,7 @@ export const seedSupportDemoData = async () => {
       let person = await Patient.findOne({ phone });
       if (!person) {
         person = await Patient.create({ phone, name });
-      } else if (person.name === "Guest Patient") {
+      } else if (person.name === "Guest Patient" || person.name === "Guest Complainant") {
         person.name = name;
         await person.save();
       }
@@ -128,7 +128,7 @@ export const seedSupportDemoData = async () => {
       return;
     }
 
-    // 3. Officers from the seeded HPR registry (phones 1111111111+).
+    // 3. Officers from the seeded mock officer registry (phones 1111111111+).
     const officerByPhone = {};
     for (const phone of [
       "1111111111",
