@@ -1,36 +1,48 @@
 import { useState } from "react";
-import {
-  ShieldCheck,
-  Mic,
-  User,
-  Users,
-  Lock,
-  ArrowRight,
-  ScrollText,
-} from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ShieldCheck, Globe, ArrowRight, LogOut, Mic, Lock } from "lucide-react";
 import Button from "../ui/Button";
 
-// DPDP-aligned consent gate shown before any health data is captured.
+const LANGUAGES = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "en", label: "English" },
+  { value: "hi", label: "हिंदी (Hindi)" },
+  { value: "mr", label: "मराठी (Marathi)" },
+  { value: "gu", label: "ગુજરાતી (Gujarati)" },
+  { value: "bn", label: "বাংলা (Bengali)" },
+];
+
+// Sahaay consent gate (SIH26093). Consent is captured before any sensitive
+// content is recorded. No recordings, no sensitive questions, no case is
+// created before this screen. Five plain-language purposes are shown
+// separately; voice processing is individually acknowledged.
+const CONSENT_ITEMS = [
+  {
+    key: "intakeProcessing",
+    title: "Complaint & intake processing",
+    body: "What you share is used to understand your situation, assess urgency, and connect you with appropriate support.",
+  },
+  {
+    key: "voiceTranscription",
+    title: "Voice recording & transcription",
+    body: "Your voice may be processed by the configured speech/AI service to create a transcript and supporting speech indicators. Sahaay does not store the raw recording.",
+  },
+  {
+    key: "aiAnalysis",
+    title: "AI-assisted analysis",
+    body: "An AI assistant helps read what you shared and pulls out key points with quotes. A fixed, explainable scoring method — not the AI — computes the urgency score, and a human officer reviews everything.",
+  },
+  {
+    key: "storage",
+    title: "Retention & storage",
+    body: "Your transcript and assessment are stored with your case so a support officer can review them. Raw voice recordings are never stored (retention: 0).",
+  },
+];
+
 export default function ConsentScreen({ onConsent }) {
-  const [dataConsent, setDataConsent] = useState(false);
-  const [audioConsent, setAudioConsent] = useState(true);
-  const [informantType, setInformantType] = useState("self");
-  const [relationship, setRelationship] = useState("");
-
-  const canContinue =
-    dataConsent && (informantType === "self" || relationship.trim().length > 0);
-
-  const submit = () => {
-    if (!canContinue) return;
-    onConsent({
-      consentGiven: true,
-      audioConsent,
-      informant: {
-        type: informantType,
-        relationship: informantType === "companion" ? relationship.trim() : "",
-      },
-    });
-  };
+  const navigate = useNavigate();
+  const [language, setLanguage] = useState("auto");
+  const [voiceAllowed, setVoiceAllowed] = useState(true);
 
   return (
     <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-6 sm:p-8 space-y-6">
@@ -42,124 +54,96 @@ export default function ConsentScreen({ onConsent }) {
           <h2 className="text-xl font-bold text-gray-900">
             Your Privacy &amp; Consent
           </h2>
-          <p className="text-sm text-gray-500">
-            Required before we begin your consultation
+          <p className="text-sm text-muted">
+            Required before you begin sharing
           </p>
         </div>
       </div>
 
-      <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 space-y-3 text-sm text-gray-700">
-        <div className="flex items-start gap-3">
-          <ScrollText className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" />
-          <p>
-            We collect your conversation, any documents you upload, optional
-            voice recordings, and AYUSH profiling answers. This information is
-            used solely to prepare a clinical summary for your treating doctor.
-          </p>
-        </div>
-        <div className="flex items-start gap-3">
-          <Lock className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" />
-          <p>
-            Your data is stored securely and shared only with the doctor
-            assigned to your case. You may withdraw consent and ask for your
-            data to be removed at any time.
-          </p>
-        </div>
-      </div>
-
-      {/* Who is providing the history */}
       <div className="space-y-3">
-        <p className="text-sm font-semibold text-gray-800">
-          Who is providing this history?
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setInformantType("self")}
-            className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-colors ${
-              informantType === "self"
-                ? "border-brand-500 bg-brand-50"
-                : "border-gray-200 hover:border-gray-300"
-            }`}
+        {CONSENT_ITEMS.map((item) => (
+          <div
+            key={item.key}
+            className="bg-gray-50 rounded-xl p-4 border border-gray-100 flex items-start gap-3"
           >
-            <User className="w-5 h-5 text-brand-600" />
+            {item.key === "voiceTranscription" ? (
+              <Mic className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" />
+            ) : (
+              <Lock className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" />
+            )}
             <div>
-              <p className="font-semibold text-gray-800">Myself (patient)</p>
-              <p className="text-xs text-gray-500">I am the patient</p>
+              <p className="text-sm font-semibold text-gray-800">{item.title}</p>
+              <p className="text-sm text-gray-600 mt-0.5">{item.body}</p>
             </div>
-          </button>
-          <button
-            type="button"
-            onClick={() => setInformantType("companion")}
-            className={`flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-colors ${
-              informantType === "companion"
-                ? "border-brand-500 bg-brand-50"
-                : "border-gray-200 hover:border-gray-300"
-            }`}
-          >
-            <Users className="w-5 h-5 text-brand-600" />
-            <div>
-              <p className="font-semibold text-gray-800">
-                Someone else (companion)
-              </p>
-              <p className="text-xs text-gray-500">
-                I am answering for the patient
-              </p>
-            </div>
-          </button>
+          </div>
+        ))}
+        <div className="bg-brand-50/50 rounded-xl p-4 border border-brand-100 flex items-start gap-3">
+          <input
+            id="voice-allowed"
+            type="checkbox"
+            checked={voiceAllowed}
+            onChange={(e) => setVoiceAllowed(e.target.checked)}
+            className="mt-1 w-4 h-4 accent-brand-600"
+          />
+          <label htmlFor="voice-allowed" className="text-sm text-gray-700">
+            <span className="font-semibold">Allow voice input.</span> If
+            unticked, you can still type — the microphone stays hidden and no
+            voice is processed.
+          </label>
         </div>
-
-        {informantType === "companion" && (
-          <input
-            type="text"
-            value={relationship}
-            onChange={(e) => setRelationship(e.target.value)}
-            placeholder="Relationship to patient (e.g., son, spouse, caregiver)"
-            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
-          />
-        )}
+        <p className="text-sm text-gray-600">
+          You may stop at any time. Withdrawing means simply exiting — nothing
+          further is recorded or analysed.
+        </p>
       </div>
 
-      {/* Consents */}
-      <div className="space-y-3 border-t border-gray-50 pt-4">
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={dataConsent}
-            onChange={(e) => setDataConsent(e.target.checked)}
-            className="mt-1 w-4 h-4 accent-brand-600"
-          />
-          <span className="text-sm text-gray-700">
-            I consent to MediKiosk processing my health information to prepare a
-            clinical summary for my doctor.{" "}
-            <span className="text-red-500 font-medium">(Required)</span>
-          </span>
+      <div className="space-y-3">
+        <label className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+          <Globe className="w-4 h-4 text-brand-600" /> Preferred language
         </label>
-
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={audioConsent}
-            onChange={(e) => setAudioConsent(e.target.checked)}
-            className="mt-1 w-4 h-4 accent-brand-600"
-          />
-          <span className="text-sm text-gray-700 flex items-center gap-2">
-            <Mic className="w-4 h-4 text-gray-400" />
-            I consent to my voice being recorded and transcribed. (Optional —
-            you can always type instead)
-          </span>
-        </label>
-      </div>
-
-      <div className="flex justify-end pt-2">
-        <Button
-          onClick={submit}
-          disabled={!canContinue}
-          className="flex items-center gap-2"
+        <select
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
         >
-          Continue to Consultation <ArrowRight className="w-4 h-4" />
+          {LANGUAGES.map((lang) => (
+            <option key={lang.value} value={lang.value}>
+              {lang.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 pt-2">
+        <Button
+          onClick={() =>
+            onConsent({
+              consentGiven: true,
+              language,
+              scopes: {
+                intakeProcessing: true,
+                voiceTranscription: voiceAllowed,
+                aiAnalysis: true,
+                storage: true,
+              },
+              voiceNoticeAcknowledged: true,
+            })
+          }
+          className="flex items-center gap-2 flex-1 justify-center"
+        >
+          I Consent &amp; Continue <ArrowRight className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => navigate("/dashboard")}
+          className="flex items-center gap-2 flex-1 justify-center"
+        >
+          <LogOut className="w-4 h-4" /> Exit
         </Button>
       </div>
+      <p className="text-xs text-gray-400 text-center">
+        You are never asked to prove anything or to repeat anything that hurts.
+      </p>
     </div>
   );
 }

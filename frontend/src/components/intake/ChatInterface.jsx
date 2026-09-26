@@ -1,65 +1,78 @@
 import { useState, useEffect, useRef } from 'react';
-import { Mic, Send, Volume2, AlertTriangle, Loader2, CheckCircle2, Globe, Activity, Radio } from 'lucide-react';
+import { Mic, Send, AlertTriangle, Loader2, CheckCircle2, Globe } from 'lucide-react';
 import { useSpeech } from '../../hooks/useSpeech';
-import PainScale from './PainScale.jsx';
 import api from '../../services/api';
 
-export default function ChatInterface({ onComplete, ayushMode = false, informant = null, consentGiven = true, audioConsent = true }) {
-  const [messages, setMessages] = useState([
-    { role: 'model', content: 'Hello! I am your AI assistant. To help the doctor, could you tell me what brings you to the hospital today?' }
-  ]);
-  const [caseId, setCaseId] = useState(null);
+const OPENING =
+  "I'm here to help you share what happened and identify what support may be needed. You can type or speak in your preferred language. You are in control of what you choose to share.";
+
+const LANGUAGES = [
+  { value: 'auto', label: 'Auto-detect' },
+  { value: 'en', label: 'English' },
+  { value: 'hi', label: 'हिंदी' },
+  { value: 'mr', label: 'मराठी' },
+  { value: 'gu', label: 'ગુજરાતી' },
+  { value: 'bn', label: 'বাংলা' },
+];
+
+const PHASE_LABELS = {
+  transcribing: 'TRANSCRIBING',
+  analyzing: 'ANALYZING',
+  updating: 'UPDATING ASSESSMENT',
+  ready: 'READY',
+};
+
+export default function ChatInterface({ caseId, language = 'auto', onLanguageChange, onComplete, voiceAllowed = true }) {
+  const [messages, setMessages] = useState([{ role: 'model', content: OPENING }]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [redFlags, setRedFlags] = useState([]);
-  const [autoTTS, setAutoTTS] = useState(true);
   const [isHistoryComplete, setIsHistoryComplete] = useState(false);
-  const [showPainScale, setShowPainScale] = useState(false);
-  const [pushToTalk, setPushToTalk] = useState(false);
-  
-  // Local language state (defaulting to English, togglable to Hindi)
-  const [language, setLanguage] = useState('en');
-  
-  const chatEndRef = useRef(null);
+  const [urgentFlag, setUrgentFlag] = useState(false);
+  const [showLanguage, setShowLanguage] = useState(false);
+  const [phase, setPhase] = useState('ready');
+  const [liveSvi, setLiveSvi] = useState(null);
+  const [aiDegraded, setAiDegraded] = useState(false);
 
-  const { isListening, voiceStatus, voiceError, setVoiceStatus, setVoiceError, clearVoiceError, toggleRecording, startListening, stopListening, playAudioBase64 } = useSpeech({
-    onAudioReady: (base64, mimeType) => {
-      // Transcribe only: the text goes into the input for patient review.
-      // Nothing is submitted to the clinical chat until Send is pressed.
+  const chatEndRef = useRef(null);
+  // Pending voice payload for the NEXT send only: derived features travel
+  // with the message; raw audio travels only to enable the optional
+  // in-memory affect analysis and is never persisted server-side.
+  const pendingVoiceRef = useRef(null);
+
+  const { isListening, voiceStatus, voiceError, setVoiceStatus, setVoiceError, clearVoiceError, toggleRecording } = useSpeech({
+    onAudioReady: (base64, mimeType, voiceFeatures) => {
+      // Transcribe only: text goes into the input for the complainant to
+      // review. Nothing is submitted until Send is pressed. No audio stored.
+      pendingVoiceRef.current = voiceFeatures ? { base64, mimeType, voiceFeatures } : null;
       transcribeVoiceInput(base64, mimeType);
     },
-    onError: (err) => {
-      setMessages(prev => [...prev, { role: 'model', content: err }]);
-    }
+    onError: () => {},
   });
 
-  // Voice transcription leg: audio -> editable text. No message bubble,
-  // no database write, no clinical call. The input is left unchanged on
-  // failure so the patient can keep typing.
   const transcribeVoiceInput = async (audioBase64, mimeType) => {
     setVoiceStatus('transcribing');
+    setPhase('transcribing');
     clearVoiceError();
     try {
-      const { data } = await api.post('/intake/transcribe', {
+      const { data } = await api.post(`/cases/${caseId}/transcribe`, {
         audioBase64,
         mimeType,
-        language
-      }, {
-        // Transcription-only leg: bounded wait, then text fallback.
-        timeout: 45000
-      });
+        language,
+      }, { timeout: 45000 });
       if (data?.text) {
         setInputText(data.text);
       } else {
         throw new Error('EMPTY_TRANSCRIPTION');
       }
     } catch (error) {
+      pendingVoiceRef.current = null;
       setVoiceError(
         error.response?.data?.message ||
         'Voice transcription is temporarily unavailable. Please type your answer instead.'
       );
     } finally {
       setVoiceStatus('idle');
+      setPhase('ready');
     }
   };
 
@@ -67,107 +80,98 @@ export default function ChatInterface({ onComplete, ayushMode = false, informant
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Single path that submits a clinical chat turn: typed text, or
-  // voice-transcribed text the patient has reviewed and chosen to send.
   const handleSendMessage = async (textOverride = null) => {
-    const textToSend = textOverride || inputText.trim();
+    const textToSend = (textOverride || inputText).trim();
+    if (!textToSend || !caseId) return;
 
-    // Require text to proceed
-    if (!textToSend) return;
+    // Attach the pending voice payload (if this turn was spoken), then
+    // clear it so typed turns never carry stale audio.
+    const voicePayload = pendingVoiceRef.current;
+    pendingVoiceRef.current = null;
 
-    // Display user message in UI
     setMessages(prev => [...prev, { role: 'user', content: textToSend }]);
     setInputText('');
-
     setIsLoading(true);
+    setPhase('analyzing');
 
     try {
-      const response = await api.post('/intake/chat', {
-        caseId,
-        message: textToSend,
-        language,
-        ayushMode: Boolean(ayushMode),
-        patientConsentGiven: Boolean(consentGiven),
-        informant: informant || undefined
-      }, {
-        timeout: 20000
-      });
-
-      const { response: aiText, audioBase64: aiAudio, redFlags: currentFlags, caseId: newCaseId, isComplete } = response.data;
-      
-      if (!caseId) setCaseId(newCaseId);
-      if (currentFlags?.length > 0) setRedFlags(currentFlags);
-      if (isComplete) setIsHistoryComplete(true);
-
-      setMessages(prev => [...prev, { role: 'model', content: aiText }]);
-      
-      // Play Bhashini Audio if returned and TTS is enabled
-      if (autoTTS && aiAudio) {
-        playAudioBase64(aiAudio);
+      const body = { message: textToSend, language };
+      if (voicePayload?.voiceFeatures) {
+        body.voiceAnalytics = voicePayload.voiceFeatures;
+        // In-memory affect analysis only; the server never persists audio.
+        body.audioBase64 = voicePayload.base64;
+        body.mimeType = voicePayload.mimeType;
       }
+      const { data } = await api.post(`/cases/${caseId}/chat`, body, { timeout: 40000 });
 
+      setPhase('updating');
+      setMessages(prev => [...prev, { role: 'model', content: data.response }]);
+      if (data.isComplete) setIsHistoryComplete(true);
+      if (data.urgentFlag || data.immediateDangerMentioned) setUrgentFlag(true);
+      if (data.svi) setLiveSvi(data.svi);
+      if (data.aiAvailable === false) setAiDegraded(true);
+      // Brief UPDATING beat so the assessment step is visible, then READY.
+      setTimeout(() => setPhase('ready'), 900);
     } catch (error) {
       let errorMsg = "I'm sorry, I encountered a network error. Could you repeat that?";
       if (error.code === 'ECONNABORTED') {
-        errorMsg = "The service is temporarily busy. Please try again in a moment.";
+        errorMsg = 'The service is temporarily busy. Please try again in a moment.';
       }
       setMessages(prev => [...prev, { role: 'model', content: errorMsg }]);
+      setPhase('ready');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-[65vh] bg-white rounded-2xl shadow-sm border border-brand-100 overflow-hidden relative">
-      
-      {/* Header Area with Language Toggle */}
+    <div className="flex flex-col h-[66vh] bg-white rounded-2xl shadow-sm border border-brand-100 overflow-hidden relative">
+      {/* Header */}
       <div className="bg-brand-50 px-4 py-3 border-b border-brand-100 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <h3 className="font-semibold text-brand-700 hidden sm:block">Consultation</h3>
-          <div className="flex items-center bg-white border border-brand-200 rounded-lg p-1 shadow-sm">
-            <Globe className="w-4 h-4 text-brand-500 mx-1" />
-            <select 
-              value={language}
-              onChange={(e) => setLanguage(e.target.value)}
-              className="bg-transparent text-sm font-medium text-brand-800 focus:outline-none cursor-pointer pr-1"
-            >
-              <option value="en">English</option>
-              <option value="hi">हिंदी (Hindi)</option>
-              {/* Additional languages appear only after their Bhashini
-                  pipelines are verified end-to-end. */}
-            </select>
-          </div>
+          <h3 className="font-semibold text-brand-700">Your Support Session</h3>
+          {phase !== 'ready' && (
+            <span className="text-[11px] font-bold tracking-wide text-brand-600 bg-white border border-brand-200 rounded-full px-2.5 py-0.5">
+              {PHASE_LABELS[phase]}
+            </span>
+          )}
+          {phase === 'ready' && liveSvi && (
+            <span className="text-[11px] font-bold tracking-wide text-ink bg-white border border-gray-200 rounded-full px-2.5 py-0.5">
+              SVI {liveSvi.score} · {liveSvi.riskLevel}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowPainScale((v) => !v)}
-            className={`p-2 rounded-full transition-colors ${showPainScale ? 'bg-brand-200 text-brand-800' : 'bg-gray-200 text-gray-500'}`}
-            title="Pain scale & body map"
-          >
-            <Activity className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => setPushToTalk((v) => !v)}
-            className={`p-2 rounded-full transition-colors ${pushToTalk ? 'bg-brand-200 text-brand-800' : 'bg-gray-200 text-gray-500'}`}
-            title="Push-to-talk (hold mic to record)"
-          >
-            <Radio className="w-5 h-5" />
-          </button>
-          <button 
-            onClick={() => setAutoTTS(!autoTTS)}
-            className={`p-2 rounded-full transition-colors ${autoTTS ? 'bg-brand-200 text-brand-800' : 'bg-gray-200 text-gray-500'}`}
-            title="Toggle Audio Feedback"
-          >
-            <Volume2 className="w-5 h-5" />
-          </button>
+        <div className="flex items-center gap-2 relative">
+          {showLanguage ? (
+            <select
+              value={language}
+              onChange={(e) => { onLanguageChange?.(e.target.value); setShowLanguage(false); }}
+              className="bg-white border border-brand-200 rounded-lg text-sm font-medium text-brand-800 focus:outline-none px-2 py-1 shadow-sm"
+              autoFocus
+            >
+              {LANGUAGES.map((lang) => (
+                <option key={lang.value} value={lang.value}>{lang.label}</option>
+              ))}
+            </select>
+          ) : (
+            <button
+              onClick={() => setShowLanguage(true)}
+              className="p-2 rounded-full bg-white text-brand-700 border border-brand-200 shadow-sm"
+              title="Change language"
+            >
+              <Globe className="w-5 h-5" />
+            </button>
+          )}
         </div>
       </div>
 
-      {redFlags.length > 0 && (
-        <div className="bg-red-50 px-4 py-2 flex items-center gap-2 border-b border-red-100">
-          <AlertTriangle className="w-5 h-5 text-red-500" />
-          <p className="text-sm text-red-700 font-medium">
-            Priority symptoms logged: {redFlags.join(', ')}
+      {/* Urgent safety banner */}
+      {urgentFlag && (
+        <div className="bg-risk-critical/10 px-4 py-3 flex items-start gap-2 border-b border-risk-critical/30">
+          <AlertTriangle className="w-5 h-5 text-risk-critical shrink-0 mt-0.5" />
+          <p className="text-sm text-risk-critical font-semibold">
+            Your immediate safety may be at risk. This case requires urgent
+            human review.
           </p>
         </div>
       )}
@@ -175,20 +179,27 @@ export default function ChatInterface({ onComplete, ayushMode = false, informant
       {voiceError && (
         <div className="bg-orange-50 px-4 py-2 flex items-center gap-2 border-b border-orange-100">
           <AlertTriangle className="w-5 h-5 text-orange-500" />
-          <p className="text-sm text-orange-700 font-medium">
-            {voiceError}
+          <p className="text-sm text-orange-700 font-medium">{voiceError}</p>
+        </div>
+      )}
+
+      {aiDegraded && (
+        <div className="bg-amber-50 px-4 py-2 flex items-center gap-2 border-b border-amber-200">
+          <AlertTriangle className="w-5 h-5 text-amber-600" />
+          <p className="text-sm text-amber-800 font-medium">
+            AI analysis unavailable — deterministic safety analysis active.
           </p>
         </div>
       )}
 
-      {/* Messages Window */}
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-4 py-3 sm:px-5 sm:py-3 shadow-sm ${
-              msg.role === 'user' 
-                ? 'bg-brand-600 text-white rounded-tr-none' 
-                : 'bg-gray-100 text-gray-800 rounded-tl-none'
+            <div className={`max-w-[85%] sm:max-w-[80%] rounded-2xl px-4 py-3 sm:px-5 shadow-sm ${
+              msg.role === 'user'
+                ? 'bg-brand-600 text-white rounded-tr-none'
+                : 'bg-gray-100 text-ink rounded-tl-none'
             }`}>
               {msg.content}
             </div>
@@ -196,89 +207,67 @@ export default function ChatInterface({ onComplete, ayushMode = false, informant
         ))}
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 text-gray-500 rounded-2xl rounded-tl-none px-5 py-3 flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" /> {voiceStatus === 'transcribing' ? 'Transcribing...' : 'Thinking...'}
+            <div className="bg-gray-100 text-muted rounded-2xl rounded-tl-none px-5 py-3 flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> {phase === 'updating' ? 'Updating assessment...' : phase === 'analyzing' ? 'Analyzing...' : 'Thinking...'}
             </div>
           </div>
         )}
         <div ref={chatEndRef} />
       </div>
 
-      {/* Input Area */}
+      {/* Input */}
       <div className="p-3 sm:p-4 bg-white border-t border-brand-100 flex flex-col gap-3">
-        {showPainScale && (
-          <PainScale
-            onSend={(text) => handleSendMessage(text)}
-            onClose={() => setShowPainScale(false)}
-          />
-        )}
         <div className="flex items-center gap-2 sm:gap-3 max-w-3xl mx-auto w-full">
-          
-          {/* Mic: toggle by default, or press-and-hold in push-to-talk mode */}
-          <button
-            onClick={() => { if (!pushToTalk) toggleRecording(); }}
-            onPointerDown={() => { if (pushToTalk) startListening(); }}
-            onPointerUp={() => { if (pushToTalk) stopListening(); }}
-            onPointerLeave={() => { if (pushToTalk && isListening) stopListening(); }}
-            disabled={isLoading || voiceStatus === 'transcribing' || !audioConsent}
-            className={`p-3 sm:p-4 rounded-full flex-shrink-0 transition-all ${
-              isListening 
-                ? 'bg-red-100 text-red-600 animate-pulse shadow-inner' 
-                : 'bg-brand-100 text-brand-600 hover:bg-brand-200 shadow-sm'
-            } ${!audioConsent ? 'opacity-40 cursor-not-allowed' : ''}`}
-            title={
-              !audioConsent
-                ? 'Voice input disabled (consent not given)'
-                : pushToTalk
-                  ? 'Hold to talk'
-                  : isListening
-                    ? 'Stop recording'
-                    : 'Start recording'
-            }
-          >
-            <Mic className="w-6 h-6 sm:w-7 sm:h-7" />
-          </button>
-          
+          {voiceAllowed && (
+            <button
+              onClick={toggleRecording}
+              disabled={isLoading || voiceStatus === 'transcribing'}
+              className={`p-3 sm:p-4 rounded-full flex-shrink-0 transition-all ${
+                isListening
+                  ? 'bg-red-100 text-red-600 animate-pulse shadow-inner'
+                  : 'bg-brand-100 text-brand-600 hover:bg-brand-200 shadow-sm'
+              }`}
+              title={isListening ? 'Stop recording' : 'Speak in your language'}
+            >
+              <Mic className="w-6 h-6 sm:w-7 sm:h-7" />
+            </button>
+          )}
+
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
             placeholder={
-              !audioConsent
-                ? 'Type your answer...'
-                : pushToTalk
-                  ? isListening
-                    ? 'Recording... release to stop'
-                    : 'Hold the mic to talk, or type'
-                  : isListening
-                    ? 'Recording... Tap mic to stop'
-                    : voiceStatus === 'transcribing'
-                      ? 'Transcribing...'
-                      : 'Type your answer...'
+              isListening
+                ? 'Recording... tap mic to stop'
+                : voiceStatus === 'transcribing'
+                  ? 'Transcribing...'
+                  : 'Type or speak — everything stays in your control'
             }
             disabled={isListening || voiceStatus === 'transcribing'}
             className="flex-1 min-w-0 py-3 px-3 sm:px-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500 bg-gray-50 text-base sm:text-lg"
           />
-          
+
           <button
             onClick={() => handleSendMessage()}
             disabled={!inputText.trim() || isLoading}
             className="p-3 sm:p-4 bg-brand-600 text-white rounded-full flex-shrink-0 disabled:opacity-50 hover:bg-brand-700 transition-colors shadow-sm"
+            title="Send"
           >
-            <Send className="w-5 h-5 sm:w-6 sm:h-6 sm:ml-1" />
+            <Send className="w-5 h-5 sm:w-6 sm:h-6" />
           </button>
         </div>
 
         {/* Completion Action */}
-        {(messages.length > 3 || isHistoryComplete) && (
+        {(messages.length > 3 || isHistoryComplete || urgentFlag) && (
           <div className="flex justify-center mt-2">
-            <button 
+            <button
               onClick={() => onComplete(caseId)}
               className="flex items-center gap-2 px-6 py-2 bg-green-100 text-green-700 font-medium rounded-xl hover:bg-green-200 transition-colors shadow-sm"
             >
               <CheckCircle2 className="w-5 h-5" />
-              Finish History & Proceed
+              Finish &amp; Review What I Shared
             </button>
           </div>
         )}

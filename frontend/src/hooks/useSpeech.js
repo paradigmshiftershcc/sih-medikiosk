@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { computeVoiceFeatures } from '../lib/voiceAnalytics.js';
 
 // MediaRecorder-based microphone capture with server-side transcription.
 // The browser only captures audio; the backend transcribes it. This avoids
@@ -7,7 +8,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 //
 // voiceStatus: 'idle' | 'recording' | 'transcribing' | 'error'
 // Recording captures audio; transcribing converts it to editable text;
-// nothing is submitted until the patient presses Send.
+// nothing is submitted until the user presses Send.
 const pickSupportedMimeType = () => {
   if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
     return 'audio/webm';
@@ -52,6 +53,14 @@ const encodeWav16kMono = async (blob) => {
       }
       mono[i] = sum / numChannels;
     }
+    // Derived voice/speech indicators from the same decoded buffer.
+    // Best-effort: transcription proceeds even if this yields nothing.
+    let voiceFeatures = null;
+    try {
+      voiceFeatures = computeVoiceFeatures(mono, targetRate);
+    } catch {
+      voiceFeatures = null;
+    }
     const dataBytes = targetLen * 2;
     const buffer = new ArrayBuffer(44 + dataBytes);
     const view = new DataView(buffer);
@@ -81,7 +90,7 @@ const encodeWav16kMono = async (blob) => {
     for (let i = 0; i < bytes.length; i += CHUNK) {
       binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
     }
-    return { base64Audio: btoa(binary), mimeType: 'audio/wav' };
+    return { base64Audio: btoa(binary), mimeType: 'audio/wav', voiceFeatures };
   } finally {
     if (ctx.close) await ctx.close().catch(() => {});
   }
@@ -103,8 +112,8 @@ export const useSpeech = (options = {}) => {
     }
     try {
       setVoiceError('');
-      // Request browser-level clean-up so a noisy OPD and speaker bleed-in
-      // do not corrupt the ASR input.
+      // Request browser-level clean-up so a noisy environment and speaker
+      // bleed-in do not corrupt the ASR input.
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -127,14 +136,16 @@ export const useSpeech = (options = {}) => {
         // Convert to 16 kHz mono WAV for the Bhashini ASR pipeline,
         // then send Base64 to the backend for transcription.
         encodeWav16kMono(audioBlob).then(
-          ({ base64Audio, mimeType }) => {
+          ({ base64Audio, mimeType, voiceFeatures }) => {
             if (!base64Audio) {
               setVoiceStatus('error');
               setVoiceError('The recording was empty. Please try again or type your answer.');
               return;
             }
             if (options.onAudioReady) {
-              options.onAudioReady(base64Audio, mimeType);
+              // voiceFeatures are derived indicators only (no audio leaves
+              // this callback except the WAV sent for transcription).
+              options.onAudioReady(base64Audio, mimeType, voiceFeatures || null);
             }
           },
           () => {
@@ -175,7 +186,7 @@ export const useSpeech = (options = {}) => {
     }
   }, [isListening, voiceStatus, startListening, stopListening]);
 
-  // If the patient navigates away mid-recording, stop the recorder and
+  // If the user navigates away mid-recording, stop the recorder and
   // release the microphone cleanly on unmount.
   useEffect(() => {
     return () => {

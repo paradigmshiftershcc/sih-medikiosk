@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import api from "../services/api";
-import { Smartphone, KeyRound, Stethoscope } from "lucide-react";
+import { Smartphone, KeyRound, HeartHandshake, ShieldCheck } from "lucide-react";
 
 export default function Login() {
   const [step, setStep] = useState(1);
@@ -45,14 +45,26 @@ export default function Login() {
   };
 
   return (
-    <div className="max-w-md mx-auto mt-12 px-4 space-y-4">
+    <div className="max-w-md mx-auto mt-10 px-4 space-y-4">
+      <div className="text-center space-y-2 mb-2">
+        <div className="bg-brand-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+          <HeartHandshake className="w-8 h-8 text-brand-700" />
+        </div>
+        <h1 className="text-2xl font-bold text-brand-700">Sahaay</h1>
+        <p className="text-sm text-muted">
+          AI-assisted stress &amp; trauma assessment for the National Helpline
+          against Atrocity (NHAA — 14566).
+        </p>
+      </div>
+
       <Card className="text-center space-y-6">
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-brand-700">
-            Patient Authentication
+          <h2 className="text-xl font-bold text-ink">
+            Victim &amp; Complainant Login
           </h2>
-          <p className="text-gray-600">
-            Please log in to start your case-taking session.
+          <p className="text-muted text-sm">
+            Please log in to begin sharing what happened. You can stop at any
+            time.
           </p>
         </div>
 
@@ -105,7 +117,7 @@ export default function Login() {
               size="lg"
               disabled={loading || otp.length < 6}
             >
-              {loading ? "Verifying..." : "Login securely"}
+              {loading ? "Verifying..." : "Continue securely"}
             </Button>
             <button
               type="button"
@@ -124,18 +136,20 @@ export default function Login() {
 
       <Card className="text-center">
         <div className="flex items-center gap-3">
-          <Stethoscope className="w-5 h-5 text-blue-600" />
+          <ShieldCheck className="w-5 h-5 text-blue-600" />
           <div className="text-left flex-1">
             <p className="text-sm font-medium text-gray-700">
-              Are you a doctor?
+              Are you a support officer?
             </p>
-            <p className="text-xs text-gray-500">Access the HPR queue system</p>
+            <p className="text-xs text-gray-500">
+              Access the NHAA Support Command Center
+            </p>
           </div>
           <Link
-            to="/doctor-login"
+            to="/officer-login"
             className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-sm font-medium transition-colors"
           >
-            Doctor Login
+            Officer Login
           </Link>
         </div>
       </Card>

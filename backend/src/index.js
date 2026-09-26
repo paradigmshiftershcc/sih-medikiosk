@@ -5,14 +5,11 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
-import intakeRoutes from "./routes/intakeRoutes.js";
-import ocrRoutes from "./routes/ocrRoutes.js";
-import summaryRoutes from "./routes/summaryRoutes.js";
-import doctorRoutes from "./routes/doctorRoutes.js";
-import analyticsRoutes from "./routes/analyticsRoutes.js";
-import fhirRoutes from "./routes/fhirRoutes.js";
-import abhaRoutes from "./routes/abhaRoutes.js";
+import supportRoutes from "./routes/supportRoutes.js";
 import Doctor from "./models/Doctor.js";
+import { protect, authorize } from "./middleware/authMiddleware.js";
+import { getSupportQueue } from "./controllers/supportCaseController.js";
+import { seedSupportDemoData } from "./config/seedSupportData.js";
 
 // Load env vars
 dotenv.config();
@@ -67,9 +64,9 @@ app.use(
   }),
 );
 
-// Explicit body size limits. The MVP sends Base64 document images (max ~5MB)
-// and Base64 audio clips, so 10mb is the documented ceiling for both JSON
-// and urlencoded payloads.
+// Explicit body size limits. The kiosk sends Base64 voice clips for
+// transcription, so 10mb is the documented ceiling for both JSON and
+// urlencoded payloads.
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
@@ -82,27 +79,22 @@ app.get("/api/health", (req, res) => {
   const status = dbReady === "connected" ? "ok" : "degraded";
   res.status(200).json({
     status,
-    message: "MediKiosk API is running!",
+    message: "Sahaay API is running!",
     database: dbReady,
   });
 });
 
 app.get('/', (req, res) => {
   res.json({
-    name: 'MediKiosk API',
+    name: 'Sahaay API',
     status: 'ok'
   });
 });
 
 // Mount Routes
 app.use("/api/auth", authRoutes);
-app.use("/api/intake", intakeRoutes);
-app.use("/api/ocr", ocrRoutes);
-app.use("/api/summary", summaryRoutes);
-app.use("/api/doctor", doctorRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/fhir", fhirRoutes);
-app.use("/api/abha", abhaRoutes);
+app.use("/api/cases", supportRoutes);
+app.get("/api/queue", protect, authorize("doctor"), getSupportQueue);
 
 // 404 for unknown API routes
 app.use((req, res) => {
@@ -137,58 +129,63 @@ const startServer = async () => {
       const mode = process.env.NODE_ENV || "development";
       console.log(`Server running in ${mode} mode on port ${PORT}`);
 
-      // Seed Mock Doctors for Demo if DB is empty
+      // Seed support officers (HPR-style registry) for the demo. Internal
+      // model/role names are retained for engine compatibility; the visible
+      // product language is officer/counsellor.
       Doctor.countDocuments()
         .then(async (docCount) => {
           if (docCount === 0) {
             await Doctor.insertMany([
               {
                 phone: "1111111111",
-                name: "Dr. Aisha Sharma",
-                hpId: "HP-1001",
-                specialty: "General Medicine",
-                department: "Internal Medicine",
-                languages: ["English", "Hindi"],
-              },
-              {
-                phone: "2222222222",
-                name: "Dr. Rajesh Patel",
-                hpId: "HP-1002",
-                specialty: "Ayurveda",
-                department: "AYUSH",
-                systemOfMedicine: "Ayurveda",
-                languages: ["Hindi", "Gujarati"],
-              },
-              {
-                phone: "3333333333",
-                name: "Dr. Sneha Gupta",
-                hpId: "HP-1003",
-                specialty: "Cardiology",
-                department: "Cardiology",
+                name: "Kavita Deshmukh",
+                hpId: "NHAA-1001",
+                specialty: "Counselling",
+                department: "Support & Counselling",
                 languages: ["English", "Hindi", "Marathi"],
               },
               {
+                phone: "2222222222",
+                name: "Arun Malhotra",
+                hpId: "NHAA-1002",
+                specialty: "Police Liaison",
+                department: "Escalation & Police Liaison",
+                languages: ["English", "Hindi"],
+              },
+              {
+                phone: "3333333333",
+                name: "Neha Gupta",
+                hpId: "NHAA-1003",
+                specialty: "Legal Aid",
+                department: "Legal Aid Cell",
+                languages: ["English", "Hindi", "Gujarati"],
+              },
+              {
                 phone: "4444444444",
-                name: "Dr. Vikram Singh",
-                hpId: "HP-1004",
-                specialty: "Dermatology",
-                department: "Dermatology",
-                languages: ["Hindi", "English", "Punjabi"],
+                name: "Farhan Shaikh",
+                hpId: "NHAA-1004",
+                specialty: "Welfare",
+                department: "Welfare & Rehabilitation",
+                languages: ["Hindi", "Marathi", "Urdu"],
               },
               {
                 phone: "5555555555",
-                name: "Dr. Priya Nair",
-                hpId: "HP-1005",
-                specialty: "Orthopedics",
-                department: "Orthopedics",
-                languages: ["Malayalam", "English", "Tamil"],
+                name: "Sunita Rao",
+                hpId: "NHAA-1005",
+                specialty: "Command",
+                department: "Command & Triage",
+                languages: ["English", "Hindi", "Gujarati", "Bengali"],
               },
             ]);
-            console.log("Seeded Mock HPR Doctors.");
+            console.log("Seeded Mock Support Officers.");
           }
+
+          // Demo support cases (fictional) appear only when explicitly enabled.
+          await seedSupportDemoData();
         })
-        .catch((err) => {
-          console.error("Failed to seed doctors:", err?.message || err);
+        .catch(async (err) => {
+          console.error("Failed to seed officers:", err?.message || err);
+          await seedSupportDemoData();
         });
     });
   } catch (error) {

@@ -9,11 +9,20 @@
   --color-brand-700: #0f766e;
   --color-brand-900: #134e4a;
 
+  /* Sahaay risk + typography tokens (SIH26093 palette) */
+  --color-ink: #172033;
+  --color-muted: #64748b;
+  --color-card: #ffffff;
+  --color-risk-critical: #dc2626;
+  --color-risk-high: #ea580c;
+  --color-risk-moderate: #d97706;
+  --color-risk-low: #16a34a;
+
   --font-sans: "Inter", system-ui, sans-serif;
 }
 
 @layer base {
   body {
-    @apply bg-brand-50 text-gray-800 antialiased min-h-screen;
+    @apply bg-brand-50 text-ink antialiased min-h-screen;
   }
 }

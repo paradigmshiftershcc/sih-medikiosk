@@ -73,7 +73,7 @@ export const verifyDoctorOtp = async (req, res) => {
     if (!doctor) {
       return res
         .status(404)
-        .json({ message: "Doctor profile not found in HPR Mock Registry." });
+        .json({ message: "Support officer profile not found in the mock registry." });
     }
 
     res.status(200).json({

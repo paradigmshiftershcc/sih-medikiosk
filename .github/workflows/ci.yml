@@ -36,6 +36,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
+      - run: npm test
       - name: Validate backend syntax
         run: |
           for file in $(find src -name '*.js' -print); do

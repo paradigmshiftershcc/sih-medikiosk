@@ -1,10 +1,10 @@
-# Render Blueprint for the MediKiosk backend.
+# Render Blueprint for the Sahaay (SIH26093) backend.
 # This file defines NON-secret service configuration only.
 # All secret values must be added in the Render dashboard (see "Secret
 # environment variables" notes in README). Never commit real values here.
 services:
   - type: web
-    name: medikiosk-backend
+    name: sahaay-backend
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /api/health

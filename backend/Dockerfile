@@ -1,4 +1,4 @@
-# Production-ready image for the MediKiosk backend (Render / container cloud).
+# Production-ready image for the Sahaay backend (Render / container cloud).
 # Secrets are NOT bundled here - they are supplied as runtime environment
 # variables by the deployment platform (Render dashboard).
 FROM node:22-alpine
